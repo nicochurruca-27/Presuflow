@@ -1,0 +1,298 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// AUTH / TENANT
+// ============================================================
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  passwordHash  String
+  emailVerified DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  business Business?
+  resetTokens PasswordResetToken[]
+
+  @@index([email])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// The tenant root. Every business-owned record is scoped by businessId.
+model Business {
+  id             String   @id @default(cuid())
+  ownerId        String   @unique
+  name           String
+  activity       String? // e.g. "Electricista", "Plomero"
+  phone          String?
+  currency       String   @default("ARS")
+  logoUrl        String?
+  quoteCounter   Int      @default(0) // last used sequential quote number
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  owner       User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  customers   Customer[]
+  quotes      Quote[]
+  settings    Settings?
+  subscription Subscription?
+  events      ProductEvent[]
+
+  @@index([ownerId])
+}
+
+// ============================================================
+// CUSTOMERS
+// ============================================================
+
+model Customer {
+  id         String    @id @default(cuid())
+  businessId String
+  name       String
+  phone      String?
+  email      String?
+  address    String?
+  notes      String?
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  quotes   Quote[]
+
+  @@index([businessId])
+  @@index([businessId, archivedAt])
+}
+
+// ============================================================
+// QUOTES
+// ============================================================
+
+enum QuoteStatus {
+  DRAFT
+  SENT
+  VIEWED
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  CANCELLED
+}
+
+model Quote {
+  id          String      @id @default(cuid())
+  businessId  String
+  customerId  String
+  number      Int // sequential per business (Business.quoteCounter)
+  publicToken String      @unique // nanoid(32), used in /q/[token]
+  status      QuoteStatus @default(DRAFT)
+
+  currency   String
+  subtotal   Int // stored in minor-less integer units (whole currency units)
+  discount   Int      @default(0)
+  total      Int
+
+  notes       String?
+  conditions  String?
+  validUntil  DateTime?
+  workDate    DateTime?
+
+  sentAt      DateTime?
+  acceptedAt  DateTime?
+  rejectedAt  DateTime?
+  cancelledAt DateTime?
+  deletedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer Customer    @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  items    QuoteItem[]
+  views    QuoteView[]
+  events   QuoteEvent[]
+  followUps FollowUp[]
+
+  @@unique([businessId, number])
+  @@index([businessId, status])
+  @@index([businessId, deletedAt])
+  @@index([customerId])
+}
+
+model QuoteItem {
+  id          String  @id @default(cuid())
+  quoteId     String
+  description String
+  detail      String?
+  quantity    Decimal @db.Decimal(10, 2) @default(1)
+  unitPrice   Int
+  total       Int
+  position    Int     @default(0)
+
+  quote Quote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([quoteId])
+}
+
+/// One row per page load of the public quote link (for view-count + first/last seen).
+model QuoteView {
+  id        String   @id @default(cuid())
+  quoteId   String
+  viewedAt  DateTime @default(now())
+  userAgent String?
+  ipHash    String? // hashed, never raw IP
+
+  quote Quote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([quoteId])
+}
+
+enum QuoteEventType {
+  CREATED
+  SENT
+  VIEWED
+  ACCEPTED
+  REJECTED
+  FOLLOWUP_SENT
+  EXPIRED
+  CANCELLED
+}
+
+/// Append-only audit log of important lifecycle events on a quote.
+model QuoteEvent {
+  id        String         @id @default(cuid())
+  quoteId   String
+  type      QuoteEventType
+  metadata  Json?
+  createdAt DateTime       @default(now())
+
+  quote Quote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([quoteId, type])
+}
+
+enum FollowUpChannel {
+  WHATSAPP
+  EMAIL
+  MANUAL
+}
+
+model FollowUp {
+  id        String          @id @default(cuid())
+  quoteId   String
+  channel   FollowUpChannel
+  message   String
+  sentAt    DateTime        @default(now())
+
+  quote Quote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([quoteId])
+}
+
+// ============================================================
+// SETTINGS
+// ============================================================
+
+model Settings {
+  id                 String  @id @default(cuid())
+  businessId         String  @unique
+  defaultValidityDays Int    @default(15)
+  defaultConditions  String?
+  quotePrefix        String  @default("")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+}
+
+// ============================================================
+// SUBSCRIPTIONS / BILLING
+// ============================================================
+
+enum PlanId {
+  FREE
+  STARTER
+  PRO
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+}
+
+model Subscription {
+  id                 String             @id @default(cuid())
+  businessId         String             @unique
+  plan               PlanId             @default(FREE)
+  status             SubscriptionStatus @default(ACTIVE)
+  provider           String? // "mercadopago" | "stripe" | null while unpaid
+  providerCustomerId String?
+  providerSubId      String?
+  currentPeriodEnd   DateTime?
+  cancelledAt        DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  payments Payment[]
+
+  @@index([businessId])
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+model Payment {
+  id             String        @id @default(cuid())
+  subscriptionId String
+  provider       String
+  providerRef    String? // external charge/payment id
+  amount         Int
+  currency       String
+  status         PaymentStatus @default(PENDING)
+  createdAt      DateTime      @default(now())
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([subscriptionId])
+}
+
+// ============================================================
+// PRODUCT ANALYTICS
+// ============================================================
+
+model ProductEvent {
+  id         String   @id @default(cuid())
+  businessId String?
+  name       String // signup, onboarding_completed, quote_created, ...
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  business Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([name, createdAt])
+  @@index([businessId])
+}
