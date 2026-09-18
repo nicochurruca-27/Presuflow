@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { requireBusiness } from "@/lib/auth-helpers";
+import { getAppUrl } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 import { formatMoney } from "@/lib/money";
 import { StatusBadge } from "@/components/ui/badge";
@@ -29,7 +30,7 @@ export default async function QuoteDetailPage({
   });
   if (!quote) notFound();
 
-  const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL}/q/${quote.publicToken}`;
+  const publicUrl = `${getAppUrl()}/q/${quote.publicToken}`;
   const sendMessage = buildQuoteSendMessage({
     customerFirstName: firstName(quote.customer.name),
     quoteNumber: quote.number,

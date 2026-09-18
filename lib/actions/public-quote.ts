@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { getAppUrl } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 import { track } from "@/lib/analytics";
 import { sendEmail } from "@/lib/email/send";
@@ -29,7 +30,7 @@ export async function acceptQuoteAction(token: string) {
     quote.business.owner.name,
     quote.customer.name,
     quote.number,
-    `${process.env.NEXT_PUBLIC_APP_URL}/presupuestos/${quote.id}`
+    `${getAppUrl()}/presupuestos/${quote.id}`
   );
   await sendEmail({ to: quote.business.owner.email, subject: email.subject, html: email.html });
 

@@ -1,4 +1,6 @@
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+import { getAppUrl } from "@/lib/env";
+
+const APP_URL = getAppUrl();
 
 function layout(title: string, body: string) {
   return `

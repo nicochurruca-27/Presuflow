@@ -5,6 +5,7 @@ import { nanoid } from "nanoid";
 import { redirect } from "next/navigation";
 import { AuthError } from "next-auth";
 import { prisma } from "@/lib/prisma";
+import { getAppUrl } from "@/lib/env";
 import { loginSchema, signupSchema } from "@/lib/validation/auth";
 import { signIn, signOut } from "@/auth";
 import { sendEmail } from "@/lib/email/send";
@@ -95,7 +96,7 @@ export async function requestPasswordResetAction(
         expiresAt: new Date(Date.now() + 1000 * 60 * 60),
       },
     });
-    const resetUrl = `${process.env.NEXT_PUBLIC_APP_URL}/restablecer/${token}`;
+    const resetUrl = `${getAppUrl()}/restablecer/${token}`;
     const email_ = passwordResetEmail(resetUrl);
     await sendEmail({ to: user.email, subject: email_.subject, html: email_.html });
   }
