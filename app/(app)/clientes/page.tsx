@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireBusiness } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
+import { LIMITS } from "@/lib/validation/limits";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
 
@@ -12,7 +13,11 @@ export default async function CustomersPage({
   searchParams: Promise<{ q?: string }>;
 }) {
   const { business } = await requireBusiness();
-  const { q } = await searchParams;
+  const { q: rawQuery } = await searchParams;
+  // Bounded before it becomes a LIKE pattern: the box is for a name, and an
+  // arbitrarily long query string shouldn't turn into an arbitrarily long
+  // database scan.
+  const q = rawQuery?.trim().slice(0, LIMITS.searchQuery) || undefined;
 
   const customers = await prisma.customer.findMany({
     where: {

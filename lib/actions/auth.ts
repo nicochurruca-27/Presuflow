@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { AuthError } from "next-auth";
 import { prisma } from "@/lib/prisma";
 import { getAppUrl } from "@/lib/env";
-import { loginSchema, signupSchema } from "@/lib/validation/auth";
+import { loginSchema, signupSchema, newPasswordSchema } from "@/lib/validation/auth";
 import { signIn, signOut } from "@/auth";
 import { sendEmail } from "@/lib/email/send";
 import { passwordResetEmail, welcomeEmail } from "@/lib/email/templates";
@@ -146,10 +146,11 @@ export async function resetPasswordAction(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
-  const password = String(formData.get("password") ?? "");
-  if (password.length < 8) {
-    return { error: "La contraseña debe tener al menos 8 caracteres" };
+  const parsedPassword = newPasswordSchema.safeParse(String(formData.get("password") ?? ""));
+  if (!parsedPassword.success) {
+    return { error: parsedPassword.error.issues[0]?.message ?? "Revisá la contraseña" };
   }
+  const password = parsedPassword.data;
 
   const resetToken = await prisma.passwordResetToken.findUnique({ where: { token } });
   if (!resetToken || resetToken.usedAt || resetToken.expiresAt < new Date()) {

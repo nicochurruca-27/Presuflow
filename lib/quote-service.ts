@@ -65,3 +65,17 @@ export function statusesAllowedToTransitionTo(to: QuoteStatus): QuoteStatus[] {
 export function isPastValidUntil(validUntil: Date | null): boolean {
   return validUntil !== null && validUntil.getTime() < Date.now();
 }
+
+/**
+ * Turns a `?status=` query string into a filter we can hand to Prisma.
+ *
+ * Anything else becomes "ALL". Passing an unrecognised value straight
+ * through would reach Prisma as an invalid enum member, which throws and
+ * renders the whole page as a 500 — a URL anyone can type should never do
+ * that.
+ */
+export function parseStatusFilter(value: string | undefined): QuoteStatus | "ALL" {
+  if (!value || value === "ALL") return "ALL";
+  const known = Object.keys(QUOTE_TRANSITIONS) as QuoteStatus[];
+  return known.includes(value as QuoteStatus) ? (value as QuoteStatus) : "ALL";
+}

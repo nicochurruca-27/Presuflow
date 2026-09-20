@@ -7,6 +7,7 @@ import { StatusBadge } from "@/components/ui/badge";
 import { formatMoney } from "@/lib/money";
 import { QuoteStatus } from "@prisma/client";
 import { QUOTE_STATUS_LABEL } from "@/lib/quote-status";
+import { parseStatusFilter } from "@/lib/quote-service";
 
 export const metadata = { title: "Presupuestos" };
 
@@ -26,7 +27,7 @@ export default async function QuotesPage({
 }) {
   const { business } = await requireBusiness();
   const { status } = await searchParams;
-  const activeFilter = (status as QuoteStatus | undefined) ?? "ALL";
+  const activeFilter = parseStatusFilter(status);
 
   const quotes = await prisma.quote.findMany({
     where: {

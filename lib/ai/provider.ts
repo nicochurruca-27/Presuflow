@@ -29,6 +29,18 @@ export interface AiProvider {
   }): Promise<string>;
 }
 
+/**
+ * Raised before calling the provider when the assembled payload is over
+ * budget. Every individual field is already bounded, but the combined
+ * context is what costs money, so it's checked once at the edge.
+ */
+export class AiPayloadTooLargeError extends Error {
+  constructor() {
+    super("El texto es demasiado largo para procesarlo con IA. Acortalo y probá de nuevo.");
+    this.name = "AiPayloadTooLargeError";
+  }
+}
+
 export class AiNotConfiguredError extends Error {
   constructor() {
     super("La función de IA no está configurada (falta AI_API_KEY).");

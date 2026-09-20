@@ -5,13 +5,14 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireBusiness } from "@/lib/auth-helpers";
-import { quoteSchema, aiDraftSchema, aiTextSchema } from "@/lib/validation/quote";
+import { quoteSchema, aiDraftSchema, aiTextSchema, followUpSchema } from "@/lib/validation/quote";
 import { canCreateQuote, canUseAi } from "@/lib/billing/entitlements";
 import { track } from "@/lib/analytics";
 import { runSideEffect } from "@/lib/side-effects";
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { aiProvider } from "@/lib/ai";
-import { AiNotConfiguredError } from "@/lib/ai/provider";
+import { AiNotConfiguredError, AiPayloadTooLargeError } from "@/lib/ai/provider";
+import { AiResponseError } from "@/lib/ai/json";
 import { buildFollowUpMessage, firstName } from "@/lib/whatsapp";
 import { OPEN_STATUSES } from "@/lib/quote-service";
 import { QuoteLimitReachedError } from "@/lib/billing/entitlements";
@@ -124,7 +125,12 @@ export async function generateFollowUpMessageAction(quoteId: string): Promise<{
       });
       if (message) return { message, aiGenerated: true };
     } catch (err) {
-      if (!(err instanceof AiNotConfiguredError)) console.error("[ai] follow-up failed", err);
+      // Best effort: any failure just falls through to the written template
+      // below, so the user always gets a usable message.
+      if (!(err instanceof AiNotConfiguredError)) {
+        const summary = err instanceof Error ? `${err.name}: ${err.message}` : "error desconocido";
+        console.error("[ai] seguimiento falló", { summary });
+      }
     }
   }
 
@@ -137,10 +143,23 @@ export async function generateFollowUpMessageAction(quoteId: string): Promise<{
   };
 }
 
-export async function recordFollowUpAction(quoteId: string, message: string) {
+export async function recordFollowUpAction(
+  quoteId: string,
+  message: string
+): Promise<{ error?: string }> {
   const { business } = await requireBusiness();
-  await performRecordFollowUp(business.id, quoteId, message);
+
+  // The message is free text the user can edit before sending, and it goes
+  // straight into the database, so it gets the same treatment as any other
+  // input rather than being trusted because the app suggested it.
+  const parsed = followUpSchema.safeParse({ quoteId, message });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Revisá el mensaje." };
+  }
+
+  await performRecordFollowUp(business.id, parsed.data.quoteId, parsed.data.message);
   revalidatePath(`/presupuestos/${quoteId}`);
+  return {};
 }
 
 /**
@@ -158,6 +177,28 @@ async function withinAiLimit(businessId: string): Promise<boolean> {
 
 const AI_LIMIT_MESSAGE =
   "Alcanzaste el máximo de usos de IA por ahora. Probá de nuevo en un rato o cargá los datos a mano.";
+
+/**
+ * Turns any AI failure into something safe to show.
+ *
+ * Nothing the provider said reaches the browser: a malformed reply, an HTTP
+ * error and a bug all become one of our own messages. The technical detail
+ * goes to the server log, trimmed to name and message so a stack trace or a
+ * request body can't end up there either.
+ */
+function aiErrorMessage(err: unknown, label: string, fallback: string): string {
+  if (err instanceof AiNotConfiguredError) return err.message;
+  if (err instanceof AiPayloadTooLargeError) return err.message;
+
+  if (err instanceof AiResponseError) {
+    console.error(`[ai] ${label}: respuesta inválida`, { detail: err.detail });
+    return "La IA devolvió una respuesta que no pudimos usar. Probá de nuevo o cargá los datos a mano.";
+  }
+
+  const summary = err instanceof Error ? `${err.name}: ${err.message}` : "error desconocido";
+  console.error(`[ai] ${label} falló`, { summary });
+  return fallback;
+}
 
 export async function draftQuoteWithAiAction(
   prompt: string
@@ -188,11 +229,13 @@ export async function draftQuoteWithAiAction(
       missingInfo: result.missingInfo,
     };
   } catch (err) {
-    if (err instanceof AiNotConfiguredError) {
-      return { error: err.message };
-    }
-    console.error("[ai] draft failed", err);
-    return { error: "No pudimos generar el borrador con IA. Probá de nuevo o cargalo manualmente." };
+    return {
+      error: aiErrorMessage(
+        err,
+        "borrador",
+        "No pudimos generar el borrador con IA. Probá de nuevo o cargalo manualmente."
+      ),
+    };
   }
 }
 
@@ -212,8 +255,7 @@ export async function improveDescriptionAction(text: string): Promise<{ text?: s
     const improved = await aiProvider.improveDescription(parsedText.data);
     return { text: improved };
   } catch (err) {
-    if (err instanceof AiNotConfiguredError) return { error: err.message };
-    return { error: "No pudimos mejorar el texto. Probá de nuevo." };
+    return { error: aiErrorMessage(err, "mejorar descripción", "No pudimos mejorar el texto. Probá de nuevo.") };
   }
 }
 
@@ -228,7 +270,8 @@ export async function generateConditionsAction(): Promise<{ text?: string; error
     const text = await aiProvider.generateConditions(business.activity ?? "servicios");
     return { text };
   } catch (err) {
-    if (err instanceof AiNotConfiguredError) return { error: err.message };
-    return { error: "No pudimos generar las condiciones. Probá de nuevo." };
+    return {
+      error: aiErrorMessage(err, "condiciones", "No pudimos generar las condiciones. Probá de nuevo."),
+    };
   }
 }

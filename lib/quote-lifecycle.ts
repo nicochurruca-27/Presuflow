@@ -8,6 +8,7 @@ import { getAppUrl } from "@/lib/env";
 import { canCreateQuote, QuoteLimitReachedError } from "@/lib/billing/entitlements";
 import { runSideEffect } from "@/lib/side-effects";
 import { computeQuoteTotals, type QuoteInput } from "@/lib/validation/quote";
+import { toDateOrNull } from "@/lib/validation/limits";
 import {
   isFinalized,
   isPastValidUntil,
@@ -262,8 +263,8 @@ export async function performCreateQuote(
         total: totals.total,
         notes: input.notes || null,
         conditions: input.conditions || null,
-        validUntil: input.validUntil ? new Date(input.validUntil) : null,
-        workDate: input.workDate ? new Date(input.workDate) : null,
+        validUntil: toDateOrNull(input.validUntil),
+        workDate: toDateOrNull(input.workDate),
         items: {
           create: input.items.map((item, index) => ({
             description: item.description,
