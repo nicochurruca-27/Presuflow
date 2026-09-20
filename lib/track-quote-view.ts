@@ -1,21 +1,22 @@
 import { prisma } from "@/lib/prisma";
 import { track } from "@/lib/analytics";
+import { applyTransition } from "@/lib/quote-lifecycle";
 import type { Quote } from "@prisma/client";
 
 /**
- * Called once per page load of the public quote page. Logs a view row always,
- * and on the very first view (SENT -> VIEWED) also flips the status and fires
- * the lifecycle event + product analytics.
+ * Called once per page load of the public quote page. Every load is logged
+ * as a QuoteView row (they represent real page loads, so duplicates are
+ * expected and wanted). The SENT -> VIEWED status change, on the other
+ * hand, must happen exactly once: it goes through the atomic transition, so
+ * if two people open the link at the same moment only one of them writes
+ * the VIEWED event and fires the analytics.
  */
 export async function recordQuoteView(quote: Quote, userAgent: string | null) {
   try {
     await prisma.quoteView.create({ data: { quoteId: quote.id, userAgent } });
 
-    if (quote.status === "SENT") {
-      await prisma.$transaction([
-        prisma.quote.update({ where: { id: quote.id }, data: { status: "VIEWED" } }),
-        prisma.quoteEvent.create({ data: { quoteId: quote.id, type: "VIEWED" } }),
-      ]);
+    const result = await applyTransition(quote.id, "VIEWED", { eventType: "VIEWED" });
+    if (result.changed) {
       await track("quote_viewed", quote.businessId, { quoteId: quote.id });
     }
   } catch (err) {

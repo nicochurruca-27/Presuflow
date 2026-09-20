@@ -5,14 +5,21 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireBusiness } from "@/lib/auth-helpers";
-import { quoteSchema, computeQuoteTotals, aiDraftSchema } from "@/lib/validation/quote";
+import { quoteSchema, aiDraftSchema } from "@/lib/validation/quote";
 import { canCreateQuote, canUseAi } from "@/lib/billing/entitlements";
 import { track } from "@/lib/analytics";
 import { aiProvider } from "@/lib/ai";
 import { AiNotConfiguredError } from "@/lib/ai/provider";
 import { buildFollowUpMessage, firstName } from "@/lib/whatsapp";
-import { canTransition, OPEN_STATUSES } from "@/lib/quote-service";
-import { settleExpiration, performCancelQuote, performRecordFollowUp } from "@/lib/quote-lifecycle";
+import { OPEN_STATUSES } from "@/lib/quote-service";
+import { QuoteLimitReachedError } from "@/lib/billing/entitlements";
+import {
+  settleExpiration,
+  performCancelQuote,
+  performCreateQuote,
+  performMarkQuoteSent,
+  performRecordFollowUp,
+} from "@/lib/quote-lifecycle";
 import type { ActionState } from "@/lib/actions/auth";
 
 export async function createQuoteAction(
@@ -51,42 +58,15 @@ export async function createQuoteAction(
   });
   if (!customer) return { error: "Elegí un cliente válido" };
 
-  const totals = computeQuoteTotals(parsed.data.items, parsed.data.discount);
-
-  const quote = await prisma.$transaction(async (tx) => {
-    const updatedBusiness = await tx.business.update({
-      where: { id: business.id },
-      data: { quoteCounter: { increment: 1 } },
-    });
-
-    return tx.quote.create({
-      data: {
-        businessId: business.id,
-        customerId: customer.id,
-        number: updatedBusiness.quoteCounter,
-        publicToken: nanoid(32),
-        currency: business.currency,
-        subtotal: totals.subtotal,
-        discount: totals.discount,
-        total: totals.total,
-        notes: parsed.data.notes || null,
-        conditions: parsed.data.conditions || null,
-        validUntil: parsed.data.validUntil ? new Date(parsed.data.validUntil) : null,
-        workDate: parsed.data.workDate ? new Date(parsed.data.workDate) : null,
-        items: {
-          create: parsed.data.items.map((item, index) => ({
-            description: item.description,
-            detail: item.detail || null,
-            quantity: item.quantity,
-            unitPrice: Math.round(item.unitPrice),
-            total: Math.round(item.quantity * item.unitPrice),
-            position: index,
-          })),
-        },
-        events: { create: { type: "CREATED" } },
-      },
-    });
-  });
+  let quote;
+  try {
+    quote = await performCreateQuote(business, parsed.data, nanoid(32));
+  } catch (err) {
+    // The authoritative limit check runs inside the transaction, so a
+    // request that lost a race against a concurrent create lands here.
+    if (err instanceof QuoteLimitReachedError) return { error: err.message };
+    throw err;
+  }
 
   await track("quote_created", business.id, { quoteId: quote.id });
   revalidatePath("/presupuestos");
@@ -96,19 +76,8 @@ export async function createQuoteAction(
 
 export async function markQuoteSentAction(quoteId: string) {
   const { business } = await requireBusiness();
-  const quote = await prisma.quote.findFirst({ where: { id: quoteId, businessId: business.id } });
-  if (!quote) return;
-  if (!canTransition(quote.status, "SENT")) return;
+  await performMarkQuoteSent(business.id, quoteId);
 
-  await prisma.$transaction([
-    prisma.quote.update({
-      where: { id: quote.id },
-      data: { status: "SENT", sentAt: new Date() },
-    }),
-    prisma.quoteEvent.create({ data: { quoteId: quote.id, type: "SENT" } }),
-  ]);
-
-  await track("quote_sent", business.id, { quoteId: quote.id });
   revalidatePath(`/presupuestos/${quoteId}`);
   revalidatePath("/presupuestos");
   revalidatePath("/dashboard");

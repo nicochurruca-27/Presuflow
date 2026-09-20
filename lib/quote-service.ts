@@ -44,6 +44,18 @@ export function canTransition(from: QuoteStatus, to: QuoteStatus): boolean {
 }
 
 /**
+ * Every status a quote is allowed to be in for `to` to be a legal next
+ * status. This is what the atomic `UPDATE ... WHERE status IN (...)` guard
+ * uses, so the database-level race protection is derived from the same
+ * transition map rather than repeating the rule in SQL.
+ */
+export function statusesAllowedToTransitionTo(to: QuoteStatus): QuoteStatus[] {
+  return (Object.keys(QUOTE_TRANSITIONS) as QuoteStatus[]).filter((from) =>
+    canTransition(from, to)
+  );
+}
+
+/**
  * Decision: `validUntil` is a plain date (from a date picker), stored as
  * midnight UTC of that day. A quote is treated as expired as soon as that
  * instant has passed — i.e. "valid until Sept 25" expires at the start of
