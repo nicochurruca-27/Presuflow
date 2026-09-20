@@ -11,6 +11,8 @@ import { track } from "@/lib/analytics";
 import { aiProvider } from "@/lib/ai";
 import { AiNotConfiguredError } from "@/lib/ai/provider";
 import { buildFollowUpMessage, firstName } from "@/lib/whatsapp";
+import { canTransition, OPEN_STATUSES } from "@/lib/quote-service";
+import { settleExpiration, performCancelQuote, performRecordFollowUp } from "@/lib/quote-lifecycle";
 import type { ActionState } from "@/lib/actions/auth";
 
 export async function createQuoteAction(
@@ -96,7 +98,7 @@ export async function markQuoteSentAction(quoteId: string) {
   const { business } = await requireBusiness();
   const quote = await prisma.quote.findFirst({ where: { id: quoteId, businessId: business.id } });
   if (!quote) return;
-  if (quote.status !== "DRAFT") return;
+  if (!canTransition(quote.status, "SENT")) return;
 
   await prisma.$transaction([
     prisma.quote.update({
@@ -114,16 +116,7 @@ export async function markQuoteSentAction(quoteId: string) {
 
 export async function cancelQuoteAction(quoteId: string) {
   const { business } = await requireBusiness();
-  const quote = await prisma.quote.findFirst({ where: { id: quoteId, businessId: business.id } });
-  if (!quote || quote.status === "ACCEPTED") return;
-
-  await prisma.$transaction([
-    prisma.quote.update({
-      where: { id: quote.id },
-      data: { status: "CANCELLED", cancelledAt: new Date(), deletedAt: new Date() },
-    }),
-    prisma.quoteEvent.create({ data: { quoteId: quote.id, type: "CANCELLED" } }),
-  ]);
+  await performCancelQuote(business.id, quoteId);
 
   revalidatePath("/presupuestos");
   revalidatePath("/dashboard");
@@ -139,6 +132,11 @@ export async function generateFollowUpMessageAction(quoteId: string): Promise<{
     include: { customer: true },
   });
   if (!quote || !quote.sentAt) {
+    return { message: "", aiGenerated: false };
+  }
+
+  const status = await settleExpiration(quote);
+  if (!OPEN_STATUSES.includes(status)) {
     return { message: "", aiGenerated: false };
   }
 
@@ -168,17 +166,7 @@ export async function generateFollowUpMessageAction(quoteId: string): Promise<{
 
 export async function recordFollowUpAction(quoteId: string, message: string) {
   const { business } = await requireBusiness();
-  const quote = await prisma.quote.findFirst({ where: { id: quoteId, businessId: business.id } });
-  if (!quote) return;
-
-  await prisma.$transaction([
-    prisma.followUp.create({
-      data: { quoteId: quote.id, channel: "WHATSAPP", message },
-    }),
-    prisma.quoteEvent.create({ data: { quoteId: quote.id, type: "FOLLOWUP_SENT" } }),
-  ]);
-
-  await track("followup_sent", business.id, { quoteId: quote.id });
+  await performRecordFollowUp(business.id, quoteId, message);
   revalidatePath(`/presupuestos/${quoteId}`);
 }
 

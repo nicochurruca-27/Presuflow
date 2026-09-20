@@ -15,9 +15,41 @@ export function needsFollowUp(quote: Pick<Quote, "status" | "sentAt">) {
 
 export const OPEN_STATUSES: QuoteStatus[] = ["SENT", "VIEWED"];
 
-const FINAL_STATUSES: QuoteStatus[] = ["ACCEPTED", "REJECTED", "CANCELLED"];
+const FINAL_STATUSES: QuoteStatus[] = ["ACCEPTED", "REJECTED", "EXPIRED", "CANCELLED"];
 
 /** A quote in one of these states is done — the public page must not allow accept/reject anymore. */
 export function isFinalized(status: QuoteStatus) {
   return FINAL_STATUSES.includes(status);
+}
+
+/**
+ * Single source of truth for which status changes are legal. Every place
+ * that moves a quote from one status to another must go through
+ * `canTransition` instead of re-deriving its own rule — that's what let
+ * `cancelQuoteAction` drift into only blocking ACCEPTED instead of every
+ * final status.
+ */
+export const QUOTE_TRANSITIONS: Record<QuoteStatus, QuoteStatus[]> = {
+  DRAFT: ["SENT", "CANCELLED"],
+  SENT: ["VIEWED", "ACCEPTED", "REJECTED", "EXPIRED", "CANCELLED"],
+  VIEWED: ["ACCEPTED", "REJECTED", "EXPIRED", "CANCELLED"],
+  ACCEPTED: [],
+  REJECTED: [],
+  EXPIRED: [],
+  CANCELLED: [],
+};
+
+export function canTransition(from: QuoteStatus, to: QuoteStatus): boolean {
+  return QUOTE_TRANSITIONS[from].includes(to);
+}
+
+/**
+ * Decision: `validUntil` is a plain date (from a date picker), stored as
+ * midnight UTC of that day. A quote is treated as expired as soon as that
+ * instant has passed — i.e. "valid until Sept 25" expires at the start of
+ * Sept 25, not the end of it. Simpler and unambiguous; documented here
+ * because a "valid through end of day" reading would also be defensible.
+ */
+export function isPastValidUntil(validUntil: Date | null): boolean {
+  return validUntil !== null && validUntil.getTime() < Date.now();
 }

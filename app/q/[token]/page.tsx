@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { formatMoney } from "@/lib/money";
 import { recordQuoteView } from "@/lib/track-quote-view";
 import { acceptQuoteAction, rejectQuoteAction } from "@/lib/actions/public-quote";
+import { settleExpiration } from "@/lib/quote-lifecycle";
+import { OPEN_STATUSES } from "@/lib/quote-service";
 import { buildWhatsAppUrl } from "@/lib/whatsapp";
 
 export const dynamic = "force-dynamic";
@@ -43,13 +45,18 @@ export default async function PublicQuotePage({
 
   if (!quote || quote.status === "DRAFT") notFound();
 
+  // Enforce validUntil before anything else: an overdue SENT/VIEWED quote
+  // becomes EXPIRED here so the view-tracking below never flips it to VIEWED
+  // instead, and so the buttons below are hidden based on the real status.
+  quote.status = await settleExpiration(quote);
+
   const headerList = await headers();
   await recordQuoteView(quote, headerList.get("user-agent"));
 
   // Re-read after a possible SENT -> VIEWED transition so the UI reflects the current state.
   const current = await prisma.quote.findUniqueOrThrow({ where: { id: quote.id } });
 
-  const isOpen = current.status === "SENT" || current.status === "VIEWED";
+  const isOpen = OPEN_STATUSES.includes(current.status);
   const acceptWithToken = acceptQuoteAction.bind(null, token);
   const rejectWithToken = rejectQuoteAction.bind(null, token);
 
@@ -155,6 +162,11 @@ export default async function PublicQuotePage({
             )}
             {current.status === "REJECTED" && (
               <p className="text-center text-sm text-muted">Rechazaste este presupuesto.</p>
+            )}
+            {current.status === "EXPIRED" && (
+              <p className="text-center text-sm text-muted">
+                Este presupuesto venció. Pedile al profesional que te envíe uno nuevo.
+              </p>
             )}
             {quote.business.phone && (
               <a
