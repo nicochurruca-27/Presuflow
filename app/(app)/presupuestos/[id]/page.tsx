@@ -10,6 +10,7 @@ import { SendWhatsAppPanel } from "@/components/quotes/send-whatsapp-panel";
 import { FollowUpPanel } from "@/components/quotes/follow-up-panel";
 import { CopyLinkButton } from "@/components/copy-link-button";
 import { CancelQuoteButton } from "@/components/quotes/cancel-quote-button";
+import { effectiveStatus, isFinalized } from "@/lib/quote-service";
 
 export default async function QuoteDetailPage({
   params,
@@ -41,32 +42,49 @@ export default async function QuoteDetailPage({
     quoteNumber: quote.number,
   });
 
-  const canSend = quote.status === "DRAFT";
-  const canFollowUp = quote.status === "SENT" || quote.status === "VIEWED";
+  // The status as of now. Expiration is settled lazily, so reading `status`
+  // straight from the row showed "Enviado" for a quote the customer already
+  // sees as "Vencido" — and, worse, offered a follow-up that the service
+  // layer would then silently refuse to record.
+  const status = effectiveStatus(quote);
+  const canSend = status === "DRAFT";
+  const canFollowUp = status === "SENT" || status === "VIEWED";
+  // Cancelling a finalized quote is not a legal transition, so the button
+  // would have done nothing at all. Shown only where it can work.
+  const canCancel = !isFinalized(status);
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-ink">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="break-words text-xl font-semibold text-ink">
             Presupuesto #{quote.number} — {quote.customer.name}
           </h1>
           <p className="text-sm text-muted">
             Creado el {quote.createdAt.toLocaleDateString("es-AR")}
           </p>
         </div>
-        <StatusBadge status={quote.status} />
+        <div className="shrink-0">
+          <StatusBadge status={status} />
+        </div>
       </div>
 
-      {quote.status === "ACCEPTED" && (
+      {status === "ACCEPTED" && (
         <div className="rounded-lg bg-success-light p-4 text-sm text-success">
           {quote.customer.name} aceptó este presupuesto
           {quote.acceptedAt ? ` el ${quote.acceptedAt.toLocaleDateString("es-AR")}` : ""}.
         </div>
       )}
-      {quote.status === "REJECTED" && (
+      {status === "REJECTED" && (
         <div className="rounded-lg bg-danger-light p-4 text-sm text-danger">
           {quote.customer.name} rechazó este presupuesto.
+        </div>
+      )}
+      {status === "EXPIRED" && (
+        <div className="rounded-lg bg-slate-100 p-4 text-sm text-muted">
+          Este presupuesto venció
+          {quote.validUntil ? ` el ${quote.validUntil.toLocaleDateString("es-AR")}` : ""}. El
+          cliente ya no puede aceptarlo; creá uno nuevo si sigue interesado.
         </div>
       )}
 
@@ -76,15 +94,17 @@ export default async function QuoteDetailPage({
         </CardHeader>
         <CardBody className="space-y-3">
           {quote.items.map((item) => (
-            <div key={item.id} className="flex justify-between text-sm">
-              <div>
-                <p className="text-ink">{item.description}</p>
-                {item.detail && <p className="text-muted">{item.detail}</p>}
+            <div key={item.id} className="flex justify-between gap-3 text-sm">
+              <div className="min-w-0">
+                <p className="break-words text-ink">{item.description}</p>
+                {item.detail && <p className="break-words text-muted">{item.detail}</p>}
                 <p className="text-muted">
                   {Number(item.quantity)} × {formatMoney(item.unitPrice, quote.currency)}
                 </p>
               </div>
-              <p className="font-medium text-ink">{formatMoney(item.total, quote.currency)}</p>
+              <p className="shrink-0 font-medium text-ink">
+                {formatMoney(item.total, quote.currency)}
+              </p>
             </div>
           ))}
           <div className="border-t border-border pt-3 text-sm">
@@ -104,7 +124,7 @@ export default async function QuoteDetailPage({
             </div>
           </div>
           {quote.conditions && (
-            <p className="border-t border-border pt-3 text-sm text-muted">
+            <p className="whitespace-pre-line break-words border-t border-border pt-3 text-sm text-muted">
               <span className="font-medium text-ink">Condiciones: </span>
               {quote.conditions}
             </p>
@@ -159,7 +179,7 @@ export default async function QuoteDetailPage({
         </Card>
       )}
 
-      {quote.status !== "ACCEPTED" && quote.status !== "CANCELLED" && (
+      {canCancel && (
         <div className="flex justify-end">
           <CancelQuoteButton quoteId={quote.id} />
         </div>

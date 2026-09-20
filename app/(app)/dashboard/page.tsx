@@ -14,9 +14,9 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-ink">Hola, {business.name}</h1>
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="break-words text-xl font-semibold text-ink">Hola, {business.name}</h1>
           <p className="text-sm text-muted">Así está tu actividad con presupuestos.</p>
         </div>
         <Link href="/presupuestos/nuevo" className="hidden md:block">
@@ -32,12 +32,17 @@ export default async function DashboardPage() {
         <StatCard
           label="Presupuestado"
           value={formatMoney(data.totalQuoted, business.currency)}
+          wide
         />
-        <StatCard label="Aceptado" value={formatMoney(data.totalAccepted, business.currency)} />
+        <StatCard
+          label="Aceptado"
+          value={formatMoney(data.totalAccepted, business.currency)}
+          wide
+        />
       </div>
 
       <Card>
-        <CardHeader className="flex items-center justify-between">
+        <CardHeader className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
           <h2 className="font-semibold text-ink">Requieren seguimiento</h2>
           <span className="text-xs text-muted">Enviados hace 3+ días sin respuesta</span>
         </CardHeader>
@@ -52,8 +57,8 @@ export default async function DashboardPage() {
               key={q.id}
               className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between"
             >
-              <div>
-                <p className="font-medium text-ink">
+              <div className="min-w-0">
+                <p className="break-words font-medium text-ink">
                   {q.customerName} — Presupuesto #{q.number}
                 </p>
                 <p className="text-sm text-muted">

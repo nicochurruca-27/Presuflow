@@ -47,15 +47,22 @@ try {
   await page.waitForURL("**/presupuestos/nuevo**", { timeout: 10000 });
   log("Onboarding -> nuevo presupuesto", true);
 
-  await page.click("text=Creá uno");
-  await page.waitForURL("**/clientes/nuevo**");
-  await page.fill("#name", "Cliente de Prueba");
-  await page.fill("#phone", "5491100000000");
-  await page.click('button:has-text("Crear cliente")');
-  await page.waitForURL("**/presupuestos/nuevo**", { timeout: 10000 });
-  log("Cliente creado -> vuelve a nuevo presupuesto", true);
-
-  await page.selectOption("#customerId", { label: "Cliente de Prueba" });
+  // The inline panel is already open when the business has no customers yet.
+  await page.fill('input[placeholder="Nombre del cliente"]', "Cliente de Prueba");
+  await page.fill('input[placeholder="Teléfono (opcional)"]', "5491100000000");
+  await page.click('button:has-text("Crear y usar")');
+  // An <option> inside a closed <select> is never "visible", so wait for it
+  // to be attached instead.
+  await page.waitForSelector('#customerId option:has-text("Cliente de Prueba")', {
+    state: "attached",
+    timeout: 10000,
+  });
+  const selectedLabel = await page.locator("#customerId option:checked").innerText();
+  log(
+    "Cliente creado sin salir del presupuesto y queda seleccionado",
+    selectedLabel.trim() === "Cliente de Prueba",
+    selectedLabel.trim()
+  );
   await page.fill('input[placeholder="Descripción del servicio"]', "Instalación de tablero eléctrico");
   await page.fill("#qty-0", "1");
   await page.fill("#price-0", "150000");

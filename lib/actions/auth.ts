@@ -15,7 +15,12 @@ import { runSideEffect } from "@/lib/side-effects";
 import { rateLimit, rateLimitByIp, RATE_LIMITS } from "@/lib/rate-limit";
 import { getRequestIp } from "@/lib/request-ip";
 
-export type ActionState = { error?: string } | undefined;
+/**
+ * `undefined` means "not submitted yet". A form that only ever returns
+ * undefined on success can't tell the two apart, which is why saving looked
+ * like nothing happening — hence the explicit success flag.
+ */
+export type ActionState = { error?: string; success?: boolean } | undefined;
 
 export async function loginAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const parsed = loginSchema.safeParse({

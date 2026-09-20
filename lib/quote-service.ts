@@ -1,4 +1,4 @@
-import { Quote, QuoteStatus } from "@prisma/client";
+import type { Prisma, Quote, QuoteStatus } from "@prisma/client";
 
 /** A sent/viewed quote that has sat this long without a response is considered stale. */
 export const FOLLOW_UP_THRESHOLD_DAYS = 3;
@@ -7,8 +7,10 @@ export function daysSince(date: Date) {
   return Math.floor((Date.now() - date.getTime()) / (1000 * 60 * 60 * 24));
 }
 
-export function needsFollowUp(quote: Pick<Quote, "status" | "sentAt">) {
-  if (quote.status !== "SENT" && quote.status !== "VIEWED") return false;
+export function needsFollowUp(quote: Pick<Quote, "status" | "sentAt" | "validUntil">) {
+  // Deliberately the effective status, not the stored one: chasing a quote
+  // that already expired is exactly the follow-up you don't want to send.
+  if (!OPEN_STATUSES.includes(effectiveStatus(quote))) return false;
   if (!quote.sentAt) return false;
   return daysSince(quote.sentAt) >= FOLLOW_UP_THRESHOLD_DAYS;
 }
@@ -78,4 +80,56 @@ export function parseStatusFilter(value: string | undefined): QuoteStatus | "ALL
   if (!value || value === "ALL") return "ALL";
   const known = Object.keys(QUOTE_TRANSITIONS) as QuoteStatus[];
   return known.includes(value as QuoteStatus) ? (value as QuoteStatus) : "ALL";
+}
+
+/**
+ * What a quote *is* right now, as opposed to what the database last wrote.
+ *
+ * Expiration is settled lazily (Bloque 1): a quote only becomes EXPIRED in
+ * the database when someone opens it. That's the right trade-off — no cron,
+ * no background job — but it means a list rendered straight from `status`
+ * shows "Enviado" for a quote that anybody opening it would see as
+ * "Vencido". This closes that gap for display, without writing anything.
+ *
+ * It mirrors `settleExpiration` exactly, including the part that's easy to
+ * get wrong: only an open quote can expire. A DRAFT past its validUntil
+ * stays a DRAFT, because DRAFT -> EXPIRED isn't a legal transition.
+ */
+export function effectiveStatus(quote: Pick<Quote, "status" | "validUntil">): QuoteStatus {
+  if (!OPEN_STATUSES.includes(quote.status)) return quote.status;
+  return isPastValidUntil(quote.validUntil) ? "EXPIRED" : quote.status;
+}
+
+/**
+ * The `where` clause behind the status filter on the quotes list.
+ *
+ * Same problem as above, seen from the database side: filtering by SENT with
+ * a plain `status: "SENT"` returns quotes that are really expired, and
+ * filtering by EXPIRED misses every quote nobody has opened yet. So the
+ * overdue ones are moved across here, in the query, rather than fetching
+ * everything and filtering in memory.
+ */
+export function quoteListWhere(
+  filter: QuoteStatus | "ALL",
+  now: Date = new Date()
+): Prisma.QuoteWhereInput {
+  if (filter === "ALL") return {};
+
+  const overdue: Prisma.QuoteWhereInput = {
+    status: { in: OPEN_STATUSES },
+    validUntil: { lt: now },
+  };
+
+  if (filter === "EXPIRED") {
+    return { OR: [{ status: "EXPIRED" }, overdue] };
+  }
+
+  if (OPEN_STATUSES.includes(filter)) {
+    return {
+      status: filter,
+      OR: [{ validUntil: null }, { validUntil: { gte: now } }],
+    };
+  }
+
+  return { status: filter };
 }

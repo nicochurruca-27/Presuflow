@@ -7,6 +7,7 @@ import { acceptQuoteAction, rejectQuoteAction } from "@/lib/actions/public-quote
 import { settleExpiration } from "@/lib/quote-lifecycle";
 import { OPEN_STATUSES } from "@/lib/quote-service";
 import { buildWhatsAppUrl } from "@/lib/whatsapp";
+import { PublicQuoteActions } from "@/components/quotes/public-quote-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -72,17 +73,21 @@ export default async function PublicQuotePage({
               className="mx-auto mb-2 h-14 w-14 rounded-full object-cover"
             />
           ) : null}
-          <h1 className="text-lg font-semibold text-ink">{quote.business.name}</h1>
-          {quote.business.activity && <p className="text-sm text-muted">{quote.business.activity}</p>}
+          <h1 className="break-words text-lg font-semibold text-ink">{quote.business.name}</h1>
+          {quote.business.activity && (
+            <p className="break-words text-sm text-muted">{quote.business.activity}</p>
+          )}
         </div>
 
         <div className="rounded-xl border border-border bg-surface shadow-sm">
           <div className="border-b border-border p-5">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <h2 className="text-base font-semibold text-ink">Presupuesto #{quote.number}</h2>
-              <StatusPill status={current.status} />
+              <span className="shrink-0">
+                <StatusPill status={current.status} />
+              </span>
             </div>
-            <p className="mt-1 text-sm text-muted">Para: {quote.customer.name}</p>
+            <p className="mt-1 break-words text-sm text-muted">Para: {quote.customer.name}</p>
             <p className="text-sm text-muted">
               Fecha: {quote.createdAt.toLocaleDateString("es-AR")}
               {quote.validUntil && ` · Válido hasta ${quote.validUntil.toLocaleDateString("es-AR")}`}
@@ -91,15 +96,17 @@ export default async function PublicQuotePage({
 
           <div className="space-y-3 p-5">
             {quote.items.map((item) => (
-              <div key={item.id} className="flex justify-between text-sm">
-                <div>
-                  <p className="text-ink">{item.description}</p>
-                  {item.detail && <p className="text-muted">{item.detail}</p>}
+              <div key={item.id} className="flex justify-between gap-3 text-sm">
+                <div className="min-w-0">
+                  <p className="break-words text-ink">{item.description}</p>
+                  {item.detail && <p className="break-words text-muted">{item.detail}</p>}
                   <p className="text-muted">
                     {Number(item.quantity)} × {formatMoney(item.unitPrice, quote.currency)}
                   </p>
                 </div>
-                <p className="font-medium text-ink">{formatMoney(item.total, quote.currency)}</p>
+                <p className="shrink-0 font-medium text-ink">
+                  {formatMoney(item.total, quote.currency)}
+                </p>
               </div>
             ))}
 
@@ -114,46 +121,32 @@ export default async function PublicQuotePage({
                   <span>-{formatMoney(quote.discount, quote.currency)}</span>
                 </div>
               )}
-              <div className="mt-1 flex justify-between text-lg font-bold text-ink">
+              <div className="mt-1 flex flex-wrap justify-between gap-x-3 text-lg font-bold text-ink">
                 <span>Total</span>
-                <span>{formatMoney(quote.total, quote.currency)}</span>
+                <span className="break-all">{formatMoney(quote.total, quote.currency)}</span>
               </div>
             </div>
 
             {quote.conditions && (
               <div className="border-t border-border pt-3 text-sm">
                 <p className="font-medium text-ink">Condiciones</p>
-                <p className="text-muted">{quote.conditions}</p>
+                <p className="whitespace-pre-line break-words text-muted">{quote.conditions}</p>
               </div>
             )}
             {quote.notes && (
               <div className="border-t border-border pt-3 text-sm">
                 <p className="font-medium text-ink">Notas</p>
-                <p className="text-muted">{quote.notes}</p>
+                <p className="whitespace-pre-line break-words text-muted">{quote.notes}</p>
               </div>
             )}
           </div>
 
           <div className="space-y-3 border-t border-border p-5">
             {isOpen && (
-              <>
-                <form action={acceptWithToken}>
-                  <button
-                    type="submit"
-                    className="w-full rounded-lg bg-success px-4 py-3 font-semibold text-white hover:bg-green-700"
-                  >
-                    Aceptar presupuesto
-                  </button>
-                </form>
-                <form action={rejectWithToken}>
-                  <button
-                    type="submit"
-                    className="w-full rounded-lg border border-border bg-surface px-4 py-2.5 text-sm text-muted hover:bg-slate-50"
-                  >
-                    Rechazar
-                  </button>
-                </form>
-              </>
+              <PublicQuoteActions
+                acceptAction={acceptWithToken}
+                rejectAction={rejectWithToken}
+              />
             )}
             {current.status === "ACCEPTED" && (
               <p className="text-center text-sm font-medium text-success">

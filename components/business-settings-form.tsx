@@ -26,7 +26,9 @@ export function BusinessSettingsForm({ business }: { business: Business }) {
           ))}
         </Select>
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      {/* One column on a phone: paired inputs at 320px leave each side too
+          narrow for a phone number or an email address. */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
           <Label htmlFor="phone">Teléfono</Label>
           <Input id="phone" name="phone" defaultValue={business.phone ?? ""} />
@@ -43,6 +45,9 @@ export function BusinessSettingsForm({ business }: { business: Business }) {
         </div>
       </div>
       {state?.error && <p className="text-sm text-danger">{state.error}</p>}
+      {state?.success && !state.error && (
+        <p className="text-sm text-success">Cambios guardados.</p>
+      )}
       <SubmitButton>Guardar cambios</SubmitButton>
     </form>
   );

@@ -24,7 +24,9 @@ export function CustomerForm({
         <Label htmlFor="name">Nombre</Label>
         <Input id="name" name="name" required defaultValue={customer?.name} />
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      {/* One column on a phone: paired inputs at 320px leave each side too
+          narrow for a phone number or an email address. */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
           <Label htmlFor="phone">Teléfono</Label>
           <Input id="phone" name="phone" defaultValue={customer?.phone ?? ""} />

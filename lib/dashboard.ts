@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { needsFollowUp, daysSince } from "@/lib/quote-service";
+import { needsFollowUp, daysSince, effectiveStatus } from "@/lib/quote-service";
 
 export async function getDashboardData(businessId: string) {
   const quotes = await prisma.quote.findMany({
@@ -8,20 +8,25 @@ export async function getDashboardData(businessId: string) {
     orderBy: { createdAt: "desc" },
   });
 
+  // Counted on the effective status: a quote past its validUntil is not
+  // pending, even though the database still says SENT until someone opens it.
+  const withStatus = quotes.map((q) => ({ quote: q, status: effectiveStatus(q) }));
+
   const counts = {
     created: quotes.length,
-    sent: quotes.filter((q) => q.status !== "DRAFT").length,
-    viewed: quotes.filter((q) => q.status === "VIEWED" || q.status === "ACCEPTED").length,
-    accepted: quotes.filter((q) => q.status === "ACCEPTED").length,
-    pending: quotes.filter((q) => q.status === "SENT" || q.status === "VIEWED").length,
+    sent: withStatus.filter((q) => q.status !== "DRAFT").length,
+    viewed: withStatus.filter((q) => q.status === "VIEWED" || q.status === "ACCEPTED").length,
+    accepted: withStatus.filter((q) => q.status === "ACCEPTED").length,
+    pending: withStatus.filter((q) => q.status === "SENT" || q.status === "VIEWED").length,
+    expired: withStatus.filter((q) => q.status === "EXPIRED").length,
   };
 
-  const totalQuoted = quotes
+  const totalQuoted = withStatus
     .filter((q) => q.status !== "DRAFT" && q.status !== "CANCELLED")
-    .reduce((sum, q) => sum + q.total, 0);
-  const totalAccepted = quotes
+    .reduce((sum, q) => sum + q.quote.total, 0);
+  const totalAccepted = withStatus
     .filter((q) => q.status === "ACCEPTED")
-    .reduce((sum, q) => sum + q.total, 0);
+    .reduce((sum, q) => sum + q.quote.total, 0);
 
   const needingFollowUp = quotes
     .filter((q) => needsFollowUp(q))

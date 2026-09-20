@@ -73,5 +73,5 @@ export async function updateBusinessAction(
     },
   });
 
-  return undefined;
+  return { success: true };
 }

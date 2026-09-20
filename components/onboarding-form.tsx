@@ -35,7 +35,9 @@ export function OnboardingForm() {
         </Select>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      {/* One column on a phone: paired inputs at 320px leave each side too
+          narrow for a phone number or an email address. */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
           <Label htmlFor="phone">Teléfono (opcional)</Label>
           <Input id="phone" name="phone" placeholder="+54 9 11 ..." />

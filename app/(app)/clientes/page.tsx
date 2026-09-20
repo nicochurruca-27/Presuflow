@@ -63,13 +63,17 @@ export default async function CustomersPage({
             <Link
               key={customer.id}
               href={`/clientes/${customer.id}`}
-              className="flex items-center justify-between p-4 hover:bg-slate-50"
+              className="flex items-center justify-between gap-3 p-4 hover:bg-slate-50"
             >
-              <div>
-                <p className="font-medium text-ink">{customer.name}</p>
-                <p className="text-sm text-muted">{customer.phone || customer.email || "—"}</p>
+              <div className="min-w-0">
+                <p className="truncate font-medium text-ink">{customer.name}</p>
+                <p className="truncate text-sm text-muted">
+                  {customer.phone || customer.email || "—"}
+                </p>
               </div>
-              <span className="text-sm text-muted">{customer._count.quotes} presupuestos</span>
+              <span className="shrink-0 text-sm text-muted">
+                {customer._count.quotes} presup.
+              </span>
             </Link>
           ))}
         </CardBody>

@@ -45,6 +45,35 @@ export async function createCustomerAction(
   redirect(`/clientes/${customer.id}`);
 }
 
+/**
+ * Creates a customer and returns it, instead of redirecting.
+ *
+ * Same service and same validations as `createCustomerAction` — this only
+ * differs in what it does afterwards. It exists so the new-quote form can
+ * add a customer without navigating away and losing a half-written draft,
+ * which was the only way to do it before.
+ */
+export async function createCustomerInlineAction(
+  name: string,
+  phone: string
+): Promise<{ customer?: { id: string; name: string }; error?: string }> {
+  const { business } = await requireBusiness();
+
+  const parsed = customerSchema.safeParse({ name, phone, email: "", address: "", notes: "" });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Revisá los datos del cliente" };
+  }
+
+  try {
+    const customer = await performCreateCustomer(business.id, parsed.data);
+    revalidatePath("/clientes");
+    return { customer: { id: customer.id, name: customer.name } };
+  } catch (err) {
+    if (err instanceof CustomerLimitReachedError) return { error: err.message };
+    throw err;
+  }
+}
+
 export async function updateCustomerAction(
   customerId: string,
   _prev: ActionState,

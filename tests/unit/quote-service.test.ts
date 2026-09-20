@@ -16,25 +16,25 @@ function daysAgo(n: number) {
 
 describe("needsFollowUp", () => {
   it("is false for a draft that was never sent", () => {
-    expect(needsFollowUp({ status: "DRAFT", sentAt: null })).toBe(false);
+    expect(needsFollowUp({ status: "DRAFT", sentAt: null, validUntil: null })).toBe(false);
   });
 
   it("is false for a quote sent recently", () => {
-    expect(needsFollowUp({ status: "SENT", sentAt: daysAgo(1) })).toBe(false);
+    expect(needsFollowUp({ status: "SENT", sentAt: daysAgo(1), validUntil: null })).toBe(false);
   });
 
   it("is true once the threshold has passed and still open", () => {
     expect(
-      needsFollowUp({ status: "SENT", sentAt: daysAgo(FOLLOW_UP_THRESHOLD_DAYS) })
+      needsFollowUp({ status: "SENT", sentAt: daysAgo(FOLLOW_UP_THRESHOLD_DAYS), validUntil: null })
     ).toBe(true);
     expect(
-      needsFollowUp({ status: "VIEWED", sentAt: daysAgo(FOLLOW_UP_THRESHOLD_DAYS + 2) })
+      needsFollowUp({ status: "VIEWED", sentAt: daysAgo(FOLLOW_UP_THRESHOLD_DAYS + 2), validUntil: null })
     ).toBe(true);
   });
 
   it("is false once accepted or rejected, even if old", () => {
-    expect(needsFollowUp({ status: "ACCEPTED", sentAt: daysAgo(30) })).toBe(false);
-    expect(needsFollowUp({ status: "REJECTED", sentAt: daysAgo(30) })).toBe(false);
+    expect(needsFollowUp({ status: "ACCEPTED", sentAt: daysAgo(30), validUntil: null })).toBe(false);
+    expect(needsFollowUp({ status: "REJECTED", sentAt: daysAgo(30), validUntil: null })).toBe(false);
   });
 });
 

@@ -7,10 +7,15 @@ import { StatusBadge } from "@/components/ui/badge";
 import { formatMoney } from "@/lib/money";
 import { QuoteStatus } from "@prisma/client";
 import { QUOTE_STATUS_LABEL } from "@/lib/quote-status";
-import { parseStatusFilter } from "@/lib/quote-service";
+import { effectiveStatus, parseStatusFilter, quoteListWhere } from "@/lib/quote-service";
 
 export const metadata = { title: "Presupuestos" };
 
+/**
+ * EXPIRED and CANCELLED were missing here, which made a quote in either
+ * state reachable only through "Todos" — the list offered no way to look at
+ * the ones that had lapsed.
+ */
 const FILTERS: (QuoteStatus | "ALL")[] = [
   "ALL",
   "DRAFT",
@@ -18,6 +23,8 @@ const FILTERS: (QuoteStatus | "ALL")[] = [
   "VIEWED",
   "ACCEPTED",
   "REJECTED",
+  "EXPIRED",
+  "CANCELLED",
 ];
 
 export default async function QuotesPage({
@@ -33,7 +40,9 @@ export default async function QuotesPage({
     where: {
       businessId: business.id,
       deletedAt: null,
-      ...(activeFilter !== "ALL" ? { status: activeFilter } : {}),
+      // Not a plain `status:` match: a quote past its validUntil is still
+      // stored as SENT until someone opens it, so the filter has to move it.
+      ...quoteListWhere(activeFilter),
     },
     include: { customer: true },
     orderBy: { createdAt: "desc" },
@@ -79,7 +88,10 @@ export default async function QuotesPage({
                 </p>
                 <p className="text-sm text-muted">{formatMoney(quote.total, quote.currency)}</p>
               </div>
-              <StatusBadge status={quote.status} />
+              {/* The status as of right now, not as last written. */}
+              <div className="shrink-0">
+                <StatusBadge status={effectiveStatus(quote)} />
+              </div>
             </Link>
           ))}
         </CardBody>

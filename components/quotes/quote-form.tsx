@@ -3,6 +3,7 @@
 import { useActionState, useState, useTransition } from "react";
 import Link from "next/link";
 import { createQuoteAction } from "@/lib/actions/quotes";
+import { createCustomerInlineAction } from "@/lib/actions/customers";
 import {
   draftQuoteWithAiAction,
   improveDescriptionAction,
@@ -47,6 +48,34 @@ export function QuoteForm({
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiNotes, setAiNotes] = useState<string[]>([]);
   const [conditionsPending, startConditionsTransition] = useTransition();
+
+  // The customer list starts as whatever the server rendered and grows when
+  // one is created inline, so the new customer is selectable straight away
+  // without a round trip that would throw away the draft.
+  const [customerOptions, setCustomerOptions] = useState<CustomerOption[]>(customers);
+  const [customerId, setCustomerId] = useState(defaultCustomerId ?? "");
+  const [showNewCustomer, setShowNewCustomer] = useState(customers.length === 0);
+  const [newCustomerName, setNewCustomerName] = useState("");
+  const [newCustomerPhone, setNewCustomerPhone] = useState("");
+  const [customerError, setCustomerError] = useState<string | null>(null);
+  const [customerPending, startCustomerTransition] = useTransition();
+
+  function createCustomerInline() {
+    setCustomerError(null);
+    startCustomerTransition(async () => {
+      const result = await createCustomerInlineAction(newCustomerName, newCustomerPhone);
+      if (result.error || !result.customer) {
+        setCustomerError(result.error ?? "No pudimos crear el cliente.");
+        return;
+      }
+      const created = result.customer;
+      setCustomerOptions((prev) => [created, ...prev]);
+      setCustomerId(created.id);
+      setNewCustomerName("");
+      setNewCustomerPhone("");
+      setShowNewCustomer(false);
+    });
+  }
 
   const [state, formAction] = useActionState(createQuoteAction, undefined);
 
@@ -148,25 +177,61 @@ export function QuoteForm({
       )}
 
       <div>
-        <Label htmlFor="customerId">Cliente</Label>
-        <Select id="customerId" name="customerId" required defaultValue={defaultCustomerId ?? ""}>
+        <div className="flex items-center justify-between gap-2">
+          <Label htmlFor="customerId">Cliente</Label>
+          <button
+            type="button"
+            onClick={() => setShowNewCustomer((open) => !open)}
+            className="text-sm font-medium text-brand hover:underline"
+          >
+            {showNewCustomer ? "Cancelar" : "+ Nuevo cliente"}
+          </button>
+        </div>
+        <Select
+          id="customerId"
+          name="customerId"
+          required
+          value={customerId}
+          onChange={(e) => setCustomerId(e.target.value)}
+        >
           <option value="" disabled>
             Elegí un cliente
           </option>
-          {customers.map((c) => (
+          {customerOptions.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
             </option>
           ))}
         </Select>
-        {customers.length === 0 && (
-          <p className="mt-1.5 text-sm text-muted">
-            No tenés clientes todavía.{" "}
-            <Link href="/clientes/nuevo?fromQuote=1" className="text-brand hover:underline">
-              Creá uno
-            </Link>
-            .
-          </p>
+
+        {showNewCustomer && (
+          <div className="mt-2 space-y-2 rounded-lg border border-border bg-slate-50 p-3">
+            <p className="text-sm font-medium text-ink">Nuevo cliente</p>
+            <Input
+              placeholder="Nombre del cliente"
+              value={newCustomerName}
+              onChange={(e) => setNewCustomerName(e.target.value)}
+            />
+            <Input
+              placeholder="Teléfono (opcional)"
+              value={newCustomerPhone}
+              onChange={(e) => setNewCustomerPhone(e.target.value)}
+            />
+            {customerError && <p className="text-sm text-danger">{customerError}</p>}
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                onClick={createCustomerInline}
+                disabled={customerPending || !newCustomerName.trim()}
+              >
+                {customerPending ? "Creando..." : "Crear y usar"}
+              </Button>
+              <Link href="/clientes/nuevo?fromQuote=1" className="self-center text-sm text-muted hover:underline">
+                Cargar todos los datos
+              </Link>
+            </div>
+          </div>
         )}
       </div>
 
@@ -198,6 +263,16 @@ export function QuoteForm({
                 </Button>
               )}
             </div>
+            {/* The column, the validation, the storage and both views for
+                `detail` all existed — the only thing missing was a way for
+                anyone to type one. Until now it could only be filled by the
+                AI draft. */}
+            <Textarea
+              rows={2}
+              placeholder="Detalle (opcional): materiales, marca, aclaraciones"
+              value={item.detail}
+              onChange={(e) => updateItem(index, { detail: e.target.value })}
+            />
             <div className="grid grid-cols-3 gap-2">
               <div>
                 <Label htmlFor={`qty-${index}`}>Cantidad</Label>
@@ -244,7 +319,9 @@ export function QuoteForm({
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      {/* Stacked on a narrow phone: side by side, a date input plus a
+          two-line label leaves neither field readable. */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
           <Label htmlFor="validUntil">Válido hasta</Label>
           <Input id="validUntil" name="validUntil" type="date" />
