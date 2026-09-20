@@ -1,3 +1,4 @@
+import { logError } from "@/lib/log";
 /**
  * Runs a best-effort side effect (transactional email, product analytics)
  * without ever letting it break the operation that triggered it.
@@ -14,6 +15,6 @@ export async function runSideEffect(label: string, effect: () => Promise<unknown
   try {
     await effect();
   } catch (err) {
-    console.error(`[side-effect] ${label} failed (operation itself was not affected)`, err);
+    logError("side-effect", err, { label, note: "operation itself was not affected" });
   }
 }

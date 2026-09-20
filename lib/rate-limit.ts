@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { logError } from "@/lib/log";
 
 /**
  * Fixed-window rate limiting backed by Postgres.
@@ -166,9 +167,7 @@ export async function rateLimit(
   if (Math.random() < PRUNE_PROBABILITY) {
     const cutoff = new Date(now.getTime() - 24 * HOUR);
     // Best effort: failing to prune must never fail the request.
-    void pruneRateLimitWindows(cutoff).catch((err) =>
-      console.error("[rate-limit] prune failed", err)
-    );
+    void pruneRateLimitWindows(cutoff).catch((err) => logError("rate-limit", err));
   }
 
   return result;

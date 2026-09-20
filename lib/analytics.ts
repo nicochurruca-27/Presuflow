@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { logError } from "@/lib/log";
 
 export type ProductEventName =
   | "signup"
@@ -25,6 +26,6 @@ export async function track(
       data: { name, businessId, metadata: (metadata as Prisma.InputJsonValue) ?? undefined },
     });
   } catch (err) {
-    console.error("[analytics] failed to record event", name, err);
+    logError("analytics", err, { event: name });
   }
 }

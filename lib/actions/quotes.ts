@@ -13,6 +13,7 @@ import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { aiProvider } from "@/lib/ai";
 import { AiNotConfiguredError, AiPayloadTooLargeError } from "@/lib/ai/provider";
 import { AiResponseError } from "@/lib/ai/json";
+import { logError, redactSecrets } from "@/lib/log";
 import { buildFollowUpMessage, firstName } from "@/lib/whatsapp";
 import { OPEN_STATUSES } from "@/lib/quote-service";
 import { QuoteLimitReachedError } from "@/lib/billing/entitlements";
@@ -127,10 +128,7 @@ export async function generateFollowUpMessageAction(quoteId: string): Promise<{
     } catch (err) {
       // Best effort: any failure just falls through to the written template
       // below, so the user always gets a usable message.
-      if (!(err instanceof AiNotConfiguredError)) {
-        const summary = err instanceof Error ? `${err.name}: ${err.message}` : "error desconocido";
-        console.error("[ai] seguimiento falló", { summary });
-      }
+      if (!(err instanceof AiNotConfiguredError)) logError("ai:seguimiento", err);
     }
   }
 
@@ -191,12 +189,11 @@ function aiErrorMessage(err: unknown, label: string, fallback: string): string {
   if (err instanceof AiPayloadTooLargeError) return err.message;
 
   if (err instanceof AiResponseError) {
-    console.error(`[ai] ${label}: respuesta inválida`, { detail: err.detail });
+    console.error(`[ai] ${label}: respuesta inválida`, { detail: redactSecrets(err.detail) });
     return "La IA devolvió una respuesta que no pudimos usar. Probá de nuevo o cargá los datos a mano.";
   }
 
-  const summary = err instanceof Error ? `${err.name}: ${err.message}` : "error desconocido";
-  console.error(`[ai] ${label} falló`, { summary });
+  logError(`ai:${label}`, err);
   return fallback;
 }
 

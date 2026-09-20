@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { logError } from "@/lib/log";
 import { track } from "@/lib/analytics";
 import { applyTransition } from "@/lib/quote-lifecycle";
 import type { Quote } from "@prisma/client";
@@ -20,6 +21,6 @@ export async function recordQuoteView(quote: Quote, userAgent: string | null) {
       await track("quote_viewed", quote.businessId, { quoteId: quote.id });
     }
   } catch (err) {
-    console.error("[quote-view] failed to record view", err);
+    logError("quote-view", err);
   }
 }
