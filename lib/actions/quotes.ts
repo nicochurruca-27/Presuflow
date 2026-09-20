@@ -116,7 +116,13 @@ export async function generateFollowUpMessageAction(quoteId: string): Promise<{
   }
 
   const canAi = await canUseAi(business.id);
-  if (canAi) {
+  // Same ceiling as the other three AI operations, checked before the call so
+  // an exhausted quota costs nothing at the provider. The difference is what
+  // happens next: this action has a written fallback, so going over the limit
+  // degrades to the template below instead of surfacing an error. The user
+  // still gets a usable message, which is the whole contract of this action.
+  const aiAllowed = canAi && (await withinAiLimit(business.id));
+  if (aiAllowed) {
     try {
       const message = await aiProvider.generateFollowUpMessage({
         customerName: firstName(quote.customer.name),
