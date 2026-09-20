@@ -9,6 +9,7 @@
     "lint": "eslint",
     "test": "node --env-file=.env.test node_modules/.bin/vitest run",
     "test:e2e:smoke": "node scripts/e2e-smoke.mjs",
+    "test:e2e:ux": "node scripts/e2e-ux.mjs",
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio"

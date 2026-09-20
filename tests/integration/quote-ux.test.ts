@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import type { Business } from "@prisma/client";
 import { effectiveStatus, quoteListWhere, needsFollowUp } from "@/lib/quote-service";
+import { settleExpiration } from "@/lib/quote-lifecycle";
 
 /**
  * What the screens show, rather than what the database last wrote.
@@ -117,6 +118,44 @@ describe("effectiveStatus", () => {
     for (const status of ["ACCEPTED", "REJECTED", "CANCELLED", "EXPIRED"] as const) {
       expect(effectiveStatus({ status, validUntil: yesterday() })).toBe(status);
       expect(effectiveStatus({ status, validUntil: tomorrow() })).toBe(status);
+    }
+  });
+});
+
+describe("effectiveStatus agrees with settleExpiration", () => {
+  /**
+   * The same rule now lives in two places: `settleExpiration` writes it, and
+   * `effectiveStatus` displays it without writing. They can drift apart
+   * silently — a screen would show one thing and the database would do
+   * another — so this pins them to each other across the whole matrix
+   * rather than trusting that they were written to match.
+   */
+  const statuses = ["DRAFT", "SENT", "VIEWED", "ACCEPTED", "EXPIRED", "CANCELLED"] as const;
+  const windows: [string, Date | null][] = [
+    ["vencido", yesterday()],
+    ["vigente", tomorrow()],
+    ["sin fecha", null],
+  ];
+
+  it("gives the same answer as the write path for every status and window", async () => {
+    const business = await makeBusiness("agreement");
+    const customer = await prisma.customer.create({
+      data: { businessId: business.id, name: "Cliente" },
+    });
+
+    let number = 100;
+    for (const status of statuses) {
+      for (const [label, validUntil] of windows) {
+        const quote = await makeQuote(business.id, customer.id, number++, status, validUntil);
+
+        const displayed = effectiveStatus(quote);
+        const written = await settleExpiration(quote);
+
+        expect(
+          displayed,
+          `${status} / ${label}: la pantalla diría ${displayed} y la base escribiría ${written}`
+        ).toBe(written);
+      }
     }
   });
 });

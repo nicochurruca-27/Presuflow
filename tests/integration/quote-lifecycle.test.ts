@@ -161,6 +161,42 @@ describe("quote lifecycle", () => {
       expect(fromDb.rejectedAt).toBeNull();
     });
 
+    // The EXPIRED cases above are covered one by one because they also
+    // exercise lazy expiry. These close the rest of the matrix: no finalized
+    // quote may be accepted or rejected, whatever it was finalized as.
+    it.each(["ACCEPTED", "REJECTED", "CANCELLED"] as QuoteStatus[])(
+      "refuses to accept a quote that is already %s",
+      async (finalStatus) => {
+        const business = await makeBusiness(`accept-blocked-${finalStatus}`);
+        const customer = await prisma.customer.create({
+          data: { businessId: business.id, name: "C" },
+        });
+        const quote = await makeQuote(business.id, customer.id, { status: finalStatus });
+
+        const status = await performAcceptQuote(quote.publicToken);
+        expect(status).toBe(finalStatus);
+        const fromDb = await prisma.quote.findUniqueOrThrow({ where: { id: quote.id } });
+        expect(fromDb.status).toBe(finalStatus);
+        expect(fromDb.acceptedAt).toBeNull();
+      }
+    );
+
+    it.each(["ACCEPTED", "REJECTED", "CANCELLED"] as QuoteStatus[])(
+      "refuses to reject a quote that is already %s",
+      async (finalStatus) => {
+        const business = await makeBusiness(`reject-blocked-${finalStatus}`);
+        const customer = await prisma.customer.create({
+          data: { businessId: business.id, name: "C" },
+        });
+        const quote = await makeQuote(business.id, customer.id, { status: finalStatus });
+
+        const status = await performRejectQuote(quote.publicToken);
+        expect(status).toBe(finalStatus);
+        const fromDb = await prisma.quote.findUniqueOrThrow({ where: { id: quote.id } });
+        expect(fromDb.status).toBe(finalStatus);
+      }
+    );
+
     it("never lets an ACCEPTED quote flip back to REJECTED", async () => {
       const business = await makeBusiness("no-flip-back");
       const customer = await prisma.customer.create({ data: { businessId: business.id, name: "C" } });
