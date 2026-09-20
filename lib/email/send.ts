@@ -20,12 +20,21 @@ export async function sendEmail({ to, subject, html }: SendEmailInput) {
   }
 
   try {
-    await resend.emails.send({
+    // Resend reports API-level failures (bad key, unverified domain, rate
+    // limit, invalid recipient) in the response body rather than by
+    // throwing, so the error field has to be checked explicitly — otherwise
+    // a mail that never left is reported as delivered and logged nowhere.
+    const { error } = await resend.emails.send({
       from: process.env.EMAIL_FROM ?? "PresuFlow <no-reply@presuflow.app>",
       to,
       subject,
       html,
     });
+
+    if (error) {
+      console.error("[email] provider rejected the message", { to, subject, error });
+      return { delivered: false, reason: error.message ?? "provider_error" };
+    }
     return { delivered: true };
   } catch (err) {
     console.error("[email] send failed", err);

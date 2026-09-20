@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { onboardingSchema } from "@/lib/validation/business";
 import { requireUser } from "@/lib/auth-helpers";
 import { track } from "@/lib/analytics";
+import { runSideEffect } from "@/lib/side-effects";
 import type { ActionState } from "@/lib/actions/auth";
 
 export async function completeOnboardingAction(
@@ -38,7 +39,9 @@ export async function completeOnboardingAction(
     },
   });
 
-  await track("onboarding_completed", business.id);
+  await runSideEffect("onboarding analytics", () =>
+    track("onboarding_completed", business.id)
+  );
   redirect("/presupuestos/nuevo?bienvenida=1");
 }
 

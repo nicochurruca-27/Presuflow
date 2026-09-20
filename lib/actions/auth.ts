@@ -11,6 +11,7 @@ import { signIn, signOut } from "@/auth";
 import { sendEmail } from "@/lib/email/send";
 import { passwordResetEmail, welcomeEmail } from "@/lib/email/templates";
 import { track } from "@/lib/analytics";
+import { runSideEffect } from "@/lib/side-effects";
 
 export type ActionState = { error?: string } | undefined;
 
@@ -63,9 +64,13 @@ export async function signupAction(_prev: ActionState, formData: FormData): Prom
     },
   });
 
-  await track("signup", null, { userId: user.id });
-  const email = welcomeEmail(user.name);
-  await sendEmail({ to: user.email, subject: email.subject, html: email.html });
+  // The account exists from here on. A failed welcome email or analytics
+  // call must never make the person think the signup didn't work.
+  await runSideEffect("signup analytics", () => track("signup", null, { userId: user.id }));
+  await runSideEffect("welcome email", () => {
+    const email = welcomeEmail(user.name);
+    return sendEmail({ to: user.email, subject: email.subject, html: email.html });
+  });
 
   await signIn("credentials", {
     email: parsed.data.email,
@@ -97,8 +102,10 @@ export async function requestPasswordResetAction(
       },
     });
     const resetUrl = `${getAppUrl()}/restablecer/${token}`;
-    const email_ = passwordResetEmail(resetUrl);
-    await sendEmail({ to: user.email, subject: email_.subject, html: email_.html });
+    await runSideEffect("password reset email", () => {
+      const resetEmail = passwordResetEmail(resetUrl);
+      return sendEmail({ to: user.email, subject: resetEmail.subject, html: resetEmail.html });
+    });
   }
 
   return undefined;

@@ -6,6 +6,7 @@ import { sendEmail } from "@/lib/email/send";
 import { quoteAcceptedEmail } from "@/lib/email/templates";
 import { getAppUrl } from "@/lib/env";
 import { canCreateQuote, QuoteLimitReachedError } from "@/lib/billing/entitlements";
+import { runSideEffect } from "@/lib/side-effects";
 import { computeQuoteTotals, type QuoteInput } from "@/lib/validation/quote";
 import {
   isFinalized,
@@ -113,15 +114,21 @@ export async function performAcceptQuote(token: string): Promise<QuoteStatus | n
   // happened and send nothing, so the owner gets exactly one email.
   if (!result.changed) return result.status;
 
-  await track("quote_accepted", quote.businessId, { quoteId: quote.id });
-
-  const email = quoteAcceptedEmail(
-    quote.business.owner.name,
-    quote.customer.name,
-    quote.number,
-    `${getAppUrl()}/presupuestos/${quote.id}`
+  // From here on the quote *is* accepted. Everything below is notification:
+  // run independently so one failure doesn't cascade into the other, and
+  // never let either of them turn a successful acceptance into an error.
+  await runSideEffect("quote_accepted analytics", () =>
+    track("quote_accepted", quote.businessId, { quoteId: quote.id })
   );
-  await sendEmail({ to: quote.business.owner.email, subject: email.subject, html: email.html });
+  await runSideEffect("acceptance email", () => {
+    const email = quoteAcceptedEmail(
+      quote.business.owner.name,
+      quote.customer.name,
+      quote.number,
+      `${getAppUrl()}/presupuestos/${quote.id}`
+    );
+    return sendEmail({ to: quote.business.owner.email, subject: email.subject, html: email.html });
+  });
 
   return "ACCEPTED";
 }
@@ -140,7 +147,9 @@ export async function performRejectQuote(token: string): Promise<QuoteStatus | n
   });
   if (!result.changed) return result.status;
 
-  await track("quote_rejected", quote.businessId, { quoteId: quote.id });
+  await runSideEffect("quote_rejected analytics", () =>
+    track("quote_rejected", quote.businessId, { quoteId: quote.id })
+  );
   return "REJECTED";
 }
 
@@ -156,7 +165,7 @@ export async function performMarkQuoteSent(
   });
   if (!result.changed) return result.status;
 
-  await track("quote_sent", businessId, { quoteId });
+  await runSideEffect("quote_sent analytics", () => track("quote_sent", businessId, { quoteId }));
   return "SENT";
 }
 
@@ -205,7 +214,9 @@ export async function performRecordFollowUp(
     prisma.followUp.create({ data: { quoteId: quote.id, channel: "WHATSAPP", message } }),
     prisma.quoteEvent.create({ data: { quoteId: quote.id, type: "FOLLOWUP_SENT" } }),
   ]);
-  await track("followup_sent", businessId, { quoteId: quote.id });
+  await runSideEffect("followup_sent analytics", () =>
+    track("followup_sent", businessId, { quoteId: quote.id })
+  );
   return status;
 }
 

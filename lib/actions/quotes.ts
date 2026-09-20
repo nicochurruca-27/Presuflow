@@ -8,6 +8,7 @@ import { requireBusiness } from "@/lib/auth-helpers";
 import { quoteSchema, aiDraftSchema } from "@/lib/validation/quote";
 import { canCreateQuote, canUseAi } from "@/lib/billing/entitlements";
 import { track } from "@/lib/analytics";
+import { runSideEffect } from "@/lib/side-effects";
 import { aiProvider } from "@/lib/ai";
 import { AiNotConfiguredError } from "@/lib/ai/provider";
 import { buildFollowUpMessage, firstName } from "@/lib/whatsapp";
@@ -68,7 +69,9 @@ export async function createQuoteAction(
     throw err;
   }
 
-  await track("quote_created", business.id, { quoteId: quote.id });
+  await runSideEffect("quote_created analytics", () =>
+    track("quote_created", business.id, { quoteId: quote.id })
+  );
   revalidatePath("/presupuestos");
   revalidatePath("/dashboard");
   redirect(`/presupuestos/${quote.id}`);
