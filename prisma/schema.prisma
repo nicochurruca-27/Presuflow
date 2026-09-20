@@ -17,6 +17,10 @@ model User {
   email         String    @unique
   passwordHash  String
   emailVerified DateTime?
+  /// Set whenever the password changes. Any JWT issued before this instant
+  /// is refused at the auth callback, which is what logs other devices out.
+  /// Null means the password was never changed, so nothing to invalidate.
+  passwordChangedAt DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -295,4 +299,20 @@ model ProductEvent {
 
   @@index([name, createdAt])
   @@index([businessId])
+}
+
+// ============================================================
+// ABUSE PROTECTION
+// ============================================================
+
+/// Fixed-window rate limiting counters, shared across every serverless
+/// instance because they live in Postgres rather than process memory.
+/// One row per (key, window); the counter is incremented atomically.
+model RateLimitWindow {
+  key         String
+  windowStart DateTime
+  count       Int      @default(1)
+
+  @@id([key, windowStart])
+  @@index([windowStart])
 }

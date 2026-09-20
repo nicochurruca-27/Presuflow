@@ -12,6 +12,8 @@ import { sendEmail } from "@/lib/email/send";
 import { passwordResetEmail, welcomeEmail } from "@/lib/email/templates";
 import { track } from "@/lib/analytics";
 import { runSideEffect } from "@/lib/side-effects";
+import { rateLimit, rateLimitByIp, RATE_LIMITS } from "@/lib/rate-limit";
+import { getRequestIp } from "@/lib/request-ip";
 
 export type ActionState = { error?: string } | undefined;
 
@@ -22,6 +24,18 @@ export async function loginAction(_prev: ActionState, formData: FormData): Promi
   });
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
+  }
+
+  // Two layers: per account (brute force against one person) and per source
+  // (spraying many accounts). The message stays generic either way so it
+  // still doesn't reveal whether the email exists.
+  const ip = await getRequestIp();
+  const [perAccount, perIp] = await Promise.all([
+    rateLimit(`login:${parsed.data.email}`, RATE_LIMITS.login),
+    rateLimitByIp(ip, "login-ip", RATE_LIMITS.loginPerIp),
+  ]);
+  if (!perAccount.allowed || !perIp.allowed) {
+    return { error: "Demasiados intentos. Esperá unos minutos y probá de nuevo." };
   }
 
   try {
@@ -48,6 +62,12 @@ export async function signupAction(_prev: ActionState, formData: FormData): Prom
   });
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
+  }
+
+  const signupIp = await getRequestIp();
+  const signupAttempts = await rateLimitByIp(signupIp, "signup-ip", RATE_LIMITS.signupPerIp);
+  if (!signupAttempts.allowed) {
+    return { error: "Demasiadas cuentas creadas desde esta conexión. Probá más tarde." };
   }
 
   const existing = await prisma.user.findUnique({ where: { email: parsed.data.email } });
@@ -90,6 +110,16 @@ export async function requestPasswordResetAction(
     .toLowerCase();
   if (!email) return { error: "Ingresá tu email" };
 
+  // Throttled before the lookup so the limit can't be used to probe which
+  // addresses exist, and so nobody can bomb someone's inbox with resets.
+  // Exceeding it returns the same neutral response as everything else.
+  const resetIp = await getRequestIp();
+  const [perEmail, perIp] = await Promise.all([
+    rateLimit(`reset:${email}`, RATE_LIMITS.passwordResetPerEmail),
+    rateLimitByIp(resetIp, "reset-ip", RATE_LIMITS.passwordResetPerIp),
+  ]);
+  if (!perEmail.allowed || !perIp.allowed) return undefined;
+
   const user = await prisma.user.findUnique({ where: { email } });
   // Always respond the same way, whether or not the account exists, to avoid leaking who has an account.
   if (user) {
@@ -128,7 +158,12 @@ export async function resetPasswordAction(
 
   const passwordHash = await bcrypt.hash(password, 10);
   await prisma.$transaction([
-    prisma.user.update({ where: { id: resetToken.userId }, data: { passwordHash } }),
+    // passwordChangedAt is what invalidates JWTs issued before this moment,
+    // so it has to be written in the same transaction as the new hash.
+    prisma.user.update({
+      where: { id: resetToken.userId },
+      data: { passwordHash, passwordChangedAt: new Date() },
+    }),
     prisma.passwordResetToken.update({
       where: { id: resetToken.id },
       data: { usedAt: new Date() },

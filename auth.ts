@@ -3,6 +3,7 @@ import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { loginSchema } from "@/lib/validation/auth";
+import { isSessionTokenValid, nowInSeconds } from "@/lib/session-validity";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   session: { strategy: "jwt" },
@@ -35,6 +36,18 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
+        // Stamped once, at sign-in. Auth.js refreshes `iat` on every session
+        // read, so this is the only reliable record of when this session began.
+        token.authAt = nowInSeconds();
+        return token;
+      }
+
+      // Every subsequent session read passes through here: a token issued
+      // before the account's last password change is refused, and returning
+      // null makes Auth.js drop the session and clear the cookie.
+      if (typeof token.id === "string") {
+        const stillValid = await isSessionTokenValid(token.id, token.authAt as number | undefined);
+        if (!stillValid) return null;
       }
       return token;
     },

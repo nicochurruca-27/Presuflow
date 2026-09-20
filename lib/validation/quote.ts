@@ -35,6 +35,17 @@ export const aiDraftSchema = z.object({
   prompt: z.string().trim().min(5, "Contanos qué trabajo vas a presupuestar").max(1000),
 });
 
+/**
+ * Free text sent to the AI provider. Capped because the payload size drives
+ * the cost of the call, and nothing in the product needs a description
+ * longer than this.
+ */
+export const aiTextSchema = z
+  .string()
+  .trim()
+  .min(1, "Escribí una descripción primero.")
+  .max(2000, "El texto es demasiado largo para mejorarlo con IA.");
+
 export const followUpSchema = z.object({
   quoteId: z.string().min(1),
 });

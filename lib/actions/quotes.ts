@@ -5,10 +5,11 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireBusiness } from "@/lib/auth-helpers";
-import { quoteSchema, aiDraftSchema } from "@/lib/validation/quote";
+import { quoteSchema, aiDraftSchema, aiTextSchema } from "@/lib/validation/quote";
 import { canCreateQuote, canUseAi } from "@/lib/billing/entitlements";
 import { track } from "@/lib/analytics";
 import { runSideEffect } from "@/lib/side-effects";
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { aiProvider } from "@/lib/ai";
 import { AiNotConfiguredError } from "@/lib/ai/provider";
 import { buildFollowUpMessage, firstName } from "@/lib/whatsapp";
@@ -142,6 +143,22 @@ export async function recordFollowUpAction(quoteId: string, message: string) {
   revalidatePath(`/presupuestos/${quoteId}`);
 }
 
+/**
+ * Every AI call costs money at the provider, and a Server Action can be
+ * invoked in a loop just as easily as by clicking a button. Two windows per
+ * business: a burst limit and a daily ceiling.
+ */
+async function withinAiLimit(businessId: string): Promise<boolean> {
+  const [perHour, perDay] = await Promise.all([
+    rateLimit(`ai-hour:${businessId}`, RATE_LIMITS.aiPerHour),
+    rateLimit(`ai-day:${businessId}`, RATE_LIMITS.aiPerDay),
+  ]);
+  return perHour.allowed && perDay.allowed;
+}
+
+const AI_LIMIT_MESSAGE =
+  "Alcanzaste el máximo de usos de IA por ahora. Probá de nuevo en un rato o cargá los datos a mano.";
+
 export async function draftQuoteWithAiAction(
   prompt: string
 ): Promise<{ error?: string; items?: { description: string; detail: string; quantity: number; unitPrice: number | null }[]; missingInfo?: string[] }> {
@@ -156,6 +173,8 @@ export async function draftQuoteWithAiAction(
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Contanos qué trabajo vas a presupuestar" };
   }
+
+  if (!(await withinAiLimit(business.id))) return { error: AI_LIMIT_MESSAGE };
 
   try {
     const result = await aiProvider.draftQuoteFromText(parsed.data.prompt, business.currency);
@@ -181,10 +200,16 @@ export async function improveDescriptionAction(text: string): Promise<{ text?: s
   const { business } = await requireBusiness();
   const allowed = await canUseAi(business.id);
   if (!allowed) return { error: "Disponible desde el plan Starter." };
-  if (!text.trim()) return { error: "Escribí una descripción primero." };
+
+  const parsedText = aiTextSchema.safeParse(text);
+  if (!parsedText.success) {
+    return { error: parsedText.error.issues[0]?.message ?? "Revisá el texto." };
+  }
+
+  if (!(await withinAiLimit(business.id))) return { error: AI_LIMIT_MESSAGE };
 
   try {
-    const improved = await aiProvider.improveDescription(text);
+    const improved = await aiProvider.improveDescription(parsedText.data);
     return { text: improved };
   } catch (err) {
     if (err instanceof AiNotConfiguredError) return { error: err.message };
@@ -196,6 +221,8 @@ export async function generateConditionsAction(): Promise<{ text?: string; error
   const { business } = await requireBusiness();
   const allowed = await canUseAi(business.id);
   if (!allowed) return { error: "Disponible desde el plan Starter." };
+
+  if (!(await withinAiLimit(business.id))) return { error: AI_LIMIT_MESSAGE };
 
   try {
     const text = await aiProvider.generateConditions(business.activity ?? "servicios");
