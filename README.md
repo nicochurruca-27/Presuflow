@@ -140,8 +140,40 @@ Puntos de diseño relevantes:
 - Estadísticas con tasa de aceptación.
 - Planes (`FREE`/`STARTER`/`PRO`) con límites centralizados en
   `lib/billing/entitlements.ts` — nunca hardcodeados en cada pantalla.
-  `FREE` bloquea la creación de un nuevo presupuesto al llegar al límite
-  mensual (verificado con tests).
+  `FREE` bloquea tanto la creación de presupuestos al llegar al límite
+  mensual como la de clientes al llegar a su tope (verificado con tests y
+  en navegador). Ambos chequeos son server-side y corren dentro de la misma
+  transacción que inserta el registro, así que no se saltan llamando a la
+  Server Action directamente.
+
+### Política de entitlements (qué plan aplica en cada momento)
+
+El plan efectivo de un negocio lo decide `effectivePlan()`, no el campo
+`plan` a secas. Esta es la política, pensada para que cuando se conecte el
+billing real los webhooks solo tengan que escribir `status` y
+`currentPeriodEnd`:
+
+| Situación | Plan efectivo |
+|---|---|
+| Sin fila de `Subscription` | `FREE` |
+| `plan = FREE` (cualquier status) | `FREE` |
+| `currentPeriodEnd` ya pasó (cualquier status) | `FREE` |
+| `ACTIVE`, período vigente o sin fecha | el plan contratado |
+| `CANCELLED`, período vigente | el plan contratado (hasta que termine lo pagado) |
+| `CANCELLED` sin `currentPeriodEnd` | `FREE` |
+| `PAST_DUE`, período vigente | el plan contratado (ventana de gracia mientras se reintenta el cobro) |
+| `PAST_DUE` sin `currentPeriodEnd` | `FREE` |
+
+La regla que evita el problema de fondo: **un plan pago solo vale mientras
+dure el período que se pagó**. Una fila vieja no otorga beneficios para
+siempre. `cancelledAt` es informativo y no participa de la decisión.
+
+**Qué consume cuota:**
+- Presupuestos: los creados en el mes calendario que no estén borrados
+  lógicamente. Cancelar un presupuesto (que setea `deletedAt`) **devuelve**
+  el cupo; los `ACCEPTED`/`REJECTED`/`EXPIRED` lo conservan.
+- Clientes: solo los **activos**. Archivar un cliente libera un lugar sin
+  perder su historial de presupuestos.
 - Tracking de eventos de producto (`signup`, `quote_created`, `quote_accepted`, etc.)
 - Panel de administración básico (`/admin`, gateado por `ADMIN_EMAILS`).
 - Landing comercial completa, páginas legales (privacidad/términos/contacto),

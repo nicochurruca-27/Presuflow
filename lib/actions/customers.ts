@@ -5,6 +5,8 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { customerSchema } from "@/lib/validation/customer";
 import { requireBusiness } from "@/lib/auth-helpers";
+import { performCreateCustomer } from "@/lib/customer-service";
+import { CustomerLimitReachedError } from "@/lib/billing/entitlements";
 import type { ActionState } from "@/lib/actions/auth";
 
 function parseCustomerForm(formData: FormData) {
@@ -27,16 +29,13 @@ export async function createCustomerAction(
     return { error: parsed.error.issues[0]?.message ?? "Revisá los datos" };
   }
 
-  const customer = await prisma.customer.create({
-    data: {
-      businessId: business.id,
-      name: parsed.data.name,
-      phone: parsed.data.phone || null,
-      email: parsed.data.email || null,
-      address: parsed.data.address || null,
-      notes: parsed.data.notes || null,
-    },
-  });
+  let customer;
+  try {
+    customer = await performCreateCustomer(business.id, parsed.data);
+  } catch (err) {
+    if (err instanceof CustomerLimitReachedError) return { error: err.message };
+    throw err;
+  }
 
   const redirectTo = formData.get("redirectToQuote") === "1";
   revalidatePath("/clientes");
