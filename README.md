@@ -273,7 +273,7 @@ localmente (no mocks de Prisma):
 | Rate limiting | Ventanas compartidas y contador atómico bajo concurrencia; ventana siguiente reinicia; IP desconocida no genera basura ni bloquea a nadie |
 | Validación | Longitudes de todos los campos; cantidad/precio/descuento; fechas inválidas; máximo de ítems; desborde de las columnas de dinero; totales recalculados en el servidor ignorando lo que mande el cliente |
 | IA | JSON válido, con fences, con prosa alrededor, malformado, truncado, array inesperado, campo faltante, tipo incorrecto; precio ausente **no** se convierte en 0; contexto demasiado grande se rechaza antes de llamar al proveedor |
-| Emails y secretos | Escaping HTML de todo dato dinámico; `javascript:` neutralizado en links; `NEXT_PUBLIC_APP_URL` obligatoria y válida en producción; secretos y tokens enmascarados en logs; el cuerpo del email no se imprime en producción |
+| Emails y secretos | Escaping HTML de todo dato dinámico; `javascript:` neutralizado en links; la URL base se resuelve en el orden documentado y en producción tiene que ser una URL http(s) válida; secretos y tokens enmascarados en logs; el cuerpo del email no se imprime en producción |
 | UX | Estado efectivo, filtro por vencidos, seguimiento que ignora vencidos, `detail` ida y vuelta, alta de cliente inline con sus validaciones y su límite de plan |
 
 **2. Smoke end-to-end en navegador real** — `npm run test:e2e:smoke`
@@ -334,7 +334,8 @@ Ver [`.env.example`](./.env.example). Resumen:
 |---|---|---|
 | `DATABASE_URL` | Sí | Cadena de conexión PostgreSQL |
 | `AUTH_SECRET` | Sí | Secreto de NextAuth (`npx auth secret`) |
-| `NEXT_PUBLIC_APP_URL` | Sí (obligatoria en producción) | URL pública de la app (links en emails y WhatsApp). En producción, si falta o no es una URL http(s) válida, la app falla con un error explícito en vez de generar links a `localhost`. En desarrollo, si está vacía se usa `http://localhost:3000` |
+| `APP_URL` | En Vercel no hace falta | URL base de la app (links en emails, link público del presupuesto, sitemap). Solo se lee en el servidor, por eso **no** lleva el prefijo `NEXT_PUBLIC_`. Se resuelve en este orden: `APP_URL` → `NEXT_PUBLIC_APP_URL` → `VERCEL_PROJECT_PRODUCTION_URL` → `VERCEL_URL` → `http://localhost:3000` (solo fuera de producción). En Vercel las dos variables del sistema alcanzan; definí `APP_URL` cuando tengas dominio propio. En producción, si lo que hay no es una URL http(s) válida, la app falla con un error explícito en vez de generar links a `localhost` |
+| `NEXT_PUBLIC_APP_URL` | No | Alternativa histórica a `APP_URL`. Sigue funcionando, pero expone el valor al navegador sin necesidad |
 | `AI_PROVIDER`, `AI_API_KEY`, `AI_MODEL` | No | Si `AI_API_KEY` está vacío, la IA muestra un error controlado |
 | `EMAIL_API_KEY`, `EMAIL_FROM` | No | Si está vacío, los emails se loguean en consola |
 | `ADMIN_EMAILS` | No | Emails con acceso a `/admin`, separados por coma |
@@ -419,7 +420,9 @@ Combinación recomendada: **Vercel** (app) + **Postgres administrado**
 1. Crear el proyecto en Vercel apuntando a este repo.
 2. Crear una base PostgreSQL administrada y copiar su `DATABASE_URL`.
 3. Cargar en Vercel las variables de entorno de `.env.example` (como mínimo
-   `DATABASE_URL`, `AUTH_SECRET`, `NEXT_PUBLIC_APP_URL` con el dominio real).
+   `DATABASE_URL` y `AUTH_SECRET`). La URL base **no** hace falta definirla:
+   Vercel expone `VERCEL_PROJECT_PRODUCTION_URL` y `VERCEL_URL` por su cuenta.
+   Definí `APP_URL` cuando conectes un dominio propio.
 4. Ejecutar las migraciones contra la base de producción **antes** de cada
    deploy que incluya cambios de esquema: `DATABASE_URL=<prod> npx prisma
    migrate deploy`. Vercel no las corre solo. Verificá que la cadena apunte

@@ -1,14 +1,23 @@
 /**
- * Public base URL of the app, used to build absolute links (emails, quote
- * links, sitemap, metadata).
+ * Base URL of the app, used to build absolute links (emails, quote links,
+ * sitemap, metadata).
  *
- * Centralized here for two reasons. The first is that `??` alone isn't
- * enough: an env var left blank in a hosting provider's dashboard comes
- * through as an empty string, not undefined, which `??` doesn't catch. The
- * second is the one this block is about — a localhost fallback is exactly
- * what you want on a laptop and exactly what you don't want in production,
- * where it produces password-reset links and public quote links that go
- * nowhere.
+ * Every caller of `getAppUrl()` runs on the server — the transactional email
+ * templates, `metadataBase`, robots.txt, sitemap.xml, the password-reset
+ * link and the public quote link. No client component reads it. That's why
+ * the preferred variable is `APP_URL`, with no `NEXT_PUBLIC_` prefix: the
+ * prefix inlines a value into the browser bundle, and this value has no
+ * business being there.
+ *
+ * `NEXT_PUBLIC_APP_URL` still works, so an existing `.env` or an already
+ * configured deployment keeps running unchanged.
+ *
+ * Two things this has to get right, both learned the hard way:
+ * - `??` isn't enough. A variable left blank in a hosting dashboard arrives
+ *   as an empty string, not undefined, and `??` doesn't catch that.
+ * - A localhost fallback is exactly what you want on a laptop and exactly
+ *   what you don't want in production, where it produces password-reset and
+ *   public quote links that go nowhere.
  */
 
 const DEV_FALLBACK = "http://localhost:3000";
@@ -16,13 +25,55 @@ const DEV_FALLBACK = "http://localhost:3000";
 /** Thrown when production can't build a correct absolute URL. */
 export class AppUrlNotConfiguredError extends Error {
   constructor(detail: string) {
-    super(`NEXT_PUBLIC_APP_URL ${detail}. En producción es obligatoria y debe ser una URL http(s) válida.`);
+    super(
+      `No hay una URL base válida para la app: ${detail}. ` +
+        `Definí APP_URL (o NEXT_PUBLIC_APP_URL) con una URL http(s) válida. ` +
+        `En Vercel también sirven las variables del sistema VERCEL_PROJECT_PRODUCTION_URL o VERCEL_URL.`
+    );
     this.name = "AppUrlNotConfiguredError";
   }
 }
 
 function isProduction(): boolean {
   return process.env.NODE_ENV === "production";
+}
+
+/** Vercel exposes host names without a scheme; its deployments are always https. */
+function fromVercelHost(host: string | undefined): string | null {
+  const trimmed = host?.trim();
+  return trimmed ? `https://${trimmed}` : null;
+}
+
+/**
+ * Where the base URL comes from, in order of preference.
+ *
+ * The two explicit variables win, because an operator setting one has a
+ * reason — a custom domain, a staging host. Only if neither is set do we
+ * fall back to what Vercel tells us about the deployment, which is what
+ * makes a deploy work with nothing configured at all.
+ *
+ * In production the stable project domain is preferred over `VERCEL_URL`,
+ * which is the immutable per-deployment host: links in an email should keep
+ * working after the next deploy.
+ */
+function resolveConfiguredUrl(): { raw: string; source: string } | null {
+  const explicit = process.env.APP_URL?.trim();
+  if (explicit) return { raw: explicit, source: "APP_URL" };
+
+  const legacy = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  if (legacy) return { raw: legacy, source: "NEXT_PUBLIC_APP_URL" };
+
+  if (process.env.VERCEL_ENV === "production") {
+    const productionDomain = fromVercelHost(process.env.VERCEL_PROJECT_PRODUCTION_URL);
+    if (productionDomain) {
+      return { raw: productionDomain, source: "VERCEL_PROJECT_PRODUCTION_URL" };
+    }
+  }
+
+  const deployment = fromVercelHost(process.env.VERCEL_URL);
+  if (deployment) return { raw: deployment, source: "VERCEL_URL" };
+
+  return null;
 }
 
 /**
@@ -48,20 +99,24 @@ function normalizeAppUrl(raw: string): string | null {
 }
 
 export function getAppUrl(): string {
-  const raw = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  const configured = resolveConfiguredUrl();
 
-  if (!raw) {
-    // Failing loudly here is the point: a missing variable in production
+  if (!configured) {
+    // Failing loudly here is the point: nothing configured in production
     // must not quietly become a link to localhost in someone's inbox.
-    if (isProduction()) throw new AppUrlNotConfiguredError("no está definida");
+    if (isProduction()) throw new AppUrlNotConfiguredError("no hay ninguna definida");
     return DEV_FALLBACK;
   }
 
-  const normalized = normalizeAppUrl(raw);
+  const normalized = normalizeAppUrl(configured.raw);
   if (!normalized) {
-    if (isProduction()) throw new AppUrlNotConfiguredError("no es una URL válida");
+    if (isProduction()) {
+      throw new AppUrlNotConfiguredError(`${configured.source} no es una URL válida`);
+    }
     // On a laptop a typo shouldn't stop the app; it should be visible.
-    console.warn("[env] NEXT_PUBLIC_APP_URL no es una URL válida, usando el fallback de desarrollo");
+    console.warn(
+      `[env] ${configured.source} no es una URL válida, usando el fallback de desarrollo`
+    );
     return DEV_FALLBACK;
   }
 
